@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+    <title>Gossiper</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="text/javascript" src="jquery.min.js"></script>
+    <script type="text/javascript" src="functionHandler.js"></script>
+</head>
+
+<body>
+	<header class="title-row">
+		<h1>Gossiper</h1>
+	</header>
+
+	<div id="privateChatboxID" class="privateChatbox">
+	  <div class="privateChatbox-content">
+	    <h1>Private Chatbox</h1>
+			<sendPrivateMessageButton 
+				id="sendPrivateMessageButtonID" onclick="sendPrivateMessage()">Send
+			</sendPrivateMessageButton>
+			<input type="text" id="newPrivateMessageID" placeholder="New private message">
+	  </div>
+	</div>
+
+	<main class="width-limited">
+		<div class="idBox">
+			<idBox id="idBoxID">
+				<h1>My ID :</h1>
+			</idBox>
+		</div>
+
+		<div class="chatbox">
+			<chatbox id="chatboxID">
+				<h1>Messages :</h1>
+				<div class="width-limited">
+					<sendMessageButton 
+						id="sendMessageButtonID" onclick="sendMessage()">Send
+					</sendMessageButton>
+				</div>
+				<input type="text" id="newMessageID" placeholder="New message">
+			</chatbox>
+		</div>
+	</main>
+	<main class="width-limited">
+		<div class="nodeBox">
+			<nodeBox id="nodeBoxID">
+				<h1>Peers :</h1>
+				<div class="width-limited">
+				<addNodeButton 
+					id="addNodeButtonID" onclick="sendNode()">Add Node 
+				</addNodeButton>
+				</div>
+				<input type="text" id="newNodeID" placeholder="New node">
+			</nodeBox>
+		</div>	
+
+		<div class="closeNodesBox">
+			<closeNodesBox id="closeNodesBoxID">
+				<h1>Close Nodes :</h1>
+			</closeNodesBox>
+		</div>
+
+		<div class="privateChatbox">
+			<privateChatbox id="privateChatboxID">
+				<h1>Private Chatbox :</h1>
+			</privateChatbox>
+		</div>
+	</main>
+	<footer></footer>
+</body>
+</html>
