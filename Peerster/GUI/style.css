@@ -142,7 +142,6 @@ sendMessageButton {
 
 	font-weight: bold;
 	font-size: 1.5rem;
-
 }
 
 sendPrivateMessageButton {
@@ -196,6 +195,26 @@ addCloseNodeButton {
 
 	font-weight: bold;
 	font-size: 1.5rem;
+}
+
+shareFileButton {
+    display: block;
+
+    margin: 0.75rem;
+    margin-right: auto;
+
+    width: 150px;
+    height: 75px;
+
+    padding: 0.75rem;
+
+    border: 2px blue solid;
+    border-radius: 1rem;
+
+    background: rgb(150, 200, 255);
+
+    font-weight: bold;
+    font-size: 1.5rem;
 }
 
 li{

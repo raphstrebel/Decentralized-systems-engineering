@@ -210,17 +210,22 @@ function addCloseNode(node) {
 	container_element.appendChild(button);
 }
 
+function shareFile() {
+	var file = document.getElementById("fileID");
+	console.log("file opened");
+}
+
 window.onload = function() {
 	showMessages();
 	showAllNodes();
 	getMyID();
 
-	// Periodic 1sec get
+	/* Periodic 1sec get
     setInterval(function(){ 
 		getNewMessages();
 		getNewNodes(); 
 		getNewCloseNodes();
-	}, 3000);
+	}, 3000);*/
 };
 
 

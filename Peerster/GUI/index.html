@@ -29,7 +29,8 @@
 				<h1>My ID :</h1>
 			</idBox>
 		</div>
-
+	</main>
+	<main class="width-limited">
 		<div class="chatbox">
 			<chatbox id="chatboxID">
 				<h1>Messages :</h1>
@@ -41,6 +42,18 @@
 				<input type="text" id="newMessageID" placeholder="New message">
 			</chatbox>
 		</div>
+
+
+		<div class="chatbox">	
+			<div class="shareFileButtonWrapper">
+				<input type="file" id="fileID" />	
+				<shareFileButton 
+					id="shareFileButtonID" onclick="shareFile()">Send File... 
+				</shareFileButton>
+			</div>
+		</div>
+
+
 	</main>
 	<main class="width-limited">
 		<div class="nodeBox">

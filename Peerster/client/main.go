@@ -7,31 +7,12 @@ import(
     "protobuf"
 )
 
-type PeerStatus struct {
-    Identifier string
-    NextID uint32
-} 
-
-type StatusPacket struct {
-    Want []PeerStatus
-}
-
-type GossipPacket struct {
-    Simple *SimpleMessage
-    Rumor *RumorMessage
-    Status *StatusPacket
+type ClientPacket struct {
+    Message *NormalMessage
     Private *PrivateMessage
 }
 
-type SimpleMessage struct {
-    OriginalName string
-    RelayPeerAddr string
-    Contents string
-}
-
-type RumorMessage struct {
-    Origin string
-    ID uint32
+type NormalMessage struct {
     Text string
 }
 
@@ -49,7 +30,7 @@ func isError(err error) {
     }
 }
 
-func sendPacket(packet GossipPacket, gossiperAddr string) {
+func sendPacket(packet ClientPacket, gossiperAddr string) {
 
     // Encode message
     packetBytes, err := protobuf.Encode(&packet)
@@ -85,7 +66,7 @@ func main() {
                 HopLimit : 10,
             }
 
-            packet := GossipPacket{Private: privateMsg}
+            packet := ClientPacket{Private: privateMsg}
             sendPacket(packet, gossiperAddr)
         }
     } else {
@@ -93,18 +74,20 @@ func main() {
         //simpleMsg := &SimpleMessage{"client_name", gossiperAddr, *msg}
         //packet := &GossipPacket{Simple: simpleMsg}
         
-            
+        message := &NormalMessage{
+            Text: *msg,
+        }
 
-        // Build a rumor message : (for test_2s_ring)
+        /* Build a rumor message : (for test_2s_ring)
         var id uint32 = 1
 
         rumorMsg := &RumorMessage{
             Origin: "client_name", 
             ID: id,
             Text: *msg,
-        }
+        }*/
 
-        packet := GossipPacket{Rumor: rumorMsg}
+        packet := ClientPacket{Message: message}
 
         sendPacket(packet, gossiperAddr)
     }
