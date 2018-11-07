@@ -53,8 +53,12 @@ func main() {
     UIPort := flag.String("UIPort", "8080", "a string")
     dest := flag.String("dest", "", "a string")
     msg := flag.String("msg", "", "a string")
+    file := flag.String("file", "", "a string")
     flag.Parse()    
+
     gossiperAddr := "127.0.0.1:" + *UIPort
+
+    fmt.Println(file)
 
     if(*dest != "") {
         if(*msg != "") {
@@ -70,22 +74,10 @@ func main() {
             sendPacket(packet, gossiperAddr)
         }
     } else {
-        // Build a simple message : (for test_1_ring)
-        //simpleMsg := &SimpleMessage{"client_name", gossiperAddr, *msg}
-        //packet := &GossipPacket{Simple: simpleMsg}
         
         message := &NormalMessage{
             Text: *msg,
         }
-
-        /* Build a rumor message : (for test_2s_ring)
-        var id uint32 = 1
-
-        rumorMsg := &RumorMessage{
-            Origin: "client_name", 
-            ID: id,
-            Text: *msg,
-        }*/
 
         packet := ClientPacket{Message: message}
 

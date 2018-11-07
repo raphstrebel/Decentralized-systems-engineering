@@ -47,12 +47,15 @@ func updateRoutingTable(gossiper *Gossiper, rumor RumorMessage, address string) 
 	}
 
 	if(len(gossiper.RoutingTable[rumor.Origin]) == 0) { // We do not know a path to this origin
+		fmt.Println("MUST UPDATE DSDV")
 		gossiper.RoutingTable[rumor.Origin] = address
 		return true
 	} else if(gossiper.RoutingTable[rumor.Origin] != address) { // The address needs to be updated
+		fmt.Println("MUST UPDATE DSDV")
 		gossiper.RoutingTable[rumor.Origin] = address
 		return true
 	} else {
+		fmt.Println("MUST NOT UPDATE DSDV")
 		return false
 	}
 }
@@ -85,8 +88,8 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 	} 
 
 	knownOrigin := false
-	isFutureID := false
-	isPastID := false
+	//isFutureID := false
+	//isPastID := false
 
 	// Check our statusPacket to see if we already have the rumor
 	for index,peerStatus := range gossiper.StatusPacket.Want {
@@ -95,7 +98,7 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 			knownOrigin = true
 		}
 		// This is the next message id (not some future message)
-		if(rumor.Origin == peerStatus.Identifier) {
+		if(knownOrigin) {
 			if(rumor.ID == peerStatus.NextID) {
 				gossiper.StatusPacket.Want[index].NextID += 1
 				// store rumor in rumor array
@@ -107,9 +110,11 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 				//return true
 			} else if(rumor.ID > peerStatus.NextID) {
 				//fmt.Println("rumor is future !!", rumor)
-				isFutureID = true
+				//isFutureID = true
+				return "future"
 			} else if(rumor.ID < peerStatus.NextID) {
-				isPastID = true
+				//isPastID = true
+				return "past"
 			}
 		}
 	}
@@ -130,7 +135,9 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 			//return false
 		}
 	}
-    // The rumor is either already seen or this is not the next rumor we want from this origin
+
+	return ""
+    /* The rumor is either already seen or this is not the next rumor we want from this origin
     if(isFutureID && !isPastID) {
     	return "future"
     } else if(!isFutureID && isPastID) {
@@ -138,7 +145,7 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
     } else {
     	fmt.Println("Error : Future and past id", rumor.ID, "with", gossiper.StatusPacket.Want)
     	return ""
-    }
+    }*/
     //return false
 }   
 
@@ -296,24 +303,19 @@ func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
 			RumorMessages: make(map[string][]RumorMessage),
 		},
 		RumorMessages: []RumorMessage{},
+		PrivateMessages: []PrivateMessage{},
 		SafeTimers: SafeTimer{
 			ResponseTimers: make(map[string][]ResponseTimer),
 		},
 		LastRumorSentIndex: -1,
+		LastPrivateSentIndex: -1,
 		StatusOfGUI: make(map[string]uint32),
 		LastNodeSentIndex: -1,
 		SentCloseNodes: []string{},
+		NextClientMessageID: 1,
 		RoutingTable: make(map[string]string),
 	}
 }
-
-/*
-	 ----------------------------BEGIN SIMPLE BROADCAST-----------------------------------------
-*/
-
-/*
-	 ----------------------------END SIMPLE BROADCAST----------------------------------------------------
-*/
 
 func sendPacketToSpecificPeer(gossiper *Gossiper, packet GossipPacket, address string) {
 	packetBytes, err := protobuf.Encode(&packet)
@@ -328,6 +330,8 @@ func sendPacketToSpecificPeer(gossiper *Gossiper, packet GossipPacket, address s
 }
 
 func sendRumorMsgToSpecificPeer(gossiper *Gossiper, rumorMessage RumorMessage, address string) {
+	fmt.Println("MONGERING with", address)
+
 	// Encode message
 	packet := GossipPacket{Rumor: &rumorMessage}
 	sendPacketToSpecificPeer(gossiper, packet, address)
@@ -412,7 +416,7 @@ func generatePeriodicalRouteMessage(gossiper *Gossiper, rtimer int) {
 	var ticker *time.Ticker
 	var luckyPeer string
 	var routeMessage RumorMessage
-	ticker = time.NewTicker(time.Second)
+	ticker = time.NewTicker(time.Second * time.Duration(rtimer))
 
 	for {
 		for range ticker.C {
@@ -463,7 +467,7 @@ func rumormongering(gossiper *Gossiper, rumorMessage RumorMessage, isRandom bool
     luckyPeer := gossiper.Peers[rand.Intn(len(gossiper.Peers))]
 
     if(isRandom) {
-    	//fmt.Println("FLIPPED COIN sending rumor to", luckyPeer)
+    	fmt.Println("FLIPPED COIN sending rumor to", luckyPeer)
     }
 
 	sendRumorMsgToSpecificPeer(gossiper, rumorMessage, luckyPeer)
@@ -497,8 +501,6 @@ func listenUIPort(gossiper *Gossiper) {
 	defer gossiper.UIPortConn.Close()
  	
     packetBytes := make([]byte, 1024)
-
-	gossiper.NextClientMessageID = 1
  
     for true {
 
@@ -513,7 +515,7 @@ func listenUIPort(gossiper *Gossiper) {
 	        msg := receivedPkt.Message.Text
 
 	        fmt.Println("CLIENT MESSAGE", msg) 
-	        fmt.Println("PEERS", gossiper.Peers_as_single_string)
+	        //fmt.Println("PEERS", gossiper.Peers_as_single_string)
 
         	rumorMessage := RumorMessage{
         		Origin: gossiper.Name, 
@@ -521,9 +523,11 @@ func listenUIPort(gossiper *Gossiper) {
         		Text: msg,
         	}
 
+        	fmt.Println("RECEIVED RUMOR FROM CLIENT ! id : ", gossiper.NextClientMessageID, " text : ", msg)
+
         	gossiper.LastRumor = rumorMessage
-        	gossiper.NextClientMessageID ++
         	stateID := updateStatusAndRumorArray(gossiper, rumorMessage, false)
+        	gossiper.NextClientMessageID ++
 
         	if(len(gossiper.Peers) > 0) {
         		if(stateID == "present") {
@@ -586,16 +590,16 @@ func listenGossipPort(gossiper *Gossiper) {
 			// Check to see if message is not a route rumor
 			if(msg != "") {		
 				stateID = updateStatusAndRumorArray(gossiper, rumorMessage, false)
-        		fmt.Println("RUMOR origin", origin, "from", peerAddr, "ID", id, "contents", msg) 
-        		fmt.Println("PEERS", gossiper.Peers_as_single_string)
+        		//fmt.Println("RUMOR origin", origin, "from", peerAddr, "ID", id, "contents", msg) 
+        		//fmt.Println("PEERS", gossiper.Peers_as_single_string)
         	} else {
         		stateID = updateStatusAndRumorArray(gossiper, rumorMessage, true)
         	}
 
         	tableUpdated = false
+        	fmt.Println("Rumor is :", stateID)
 
         	if(stateID == "present" || stateID == "future") {
-        		//fmt.Println("Rumor is :", stateID)
 	        	tableUpdated = updateRoutingTable(gossiper, rumorMessage, peerAddr)
 	        }
 
@@ -654,19 +658,20 @@ func listenGossipPort(gossiper *Gossiper) {
 			hopLimit := receivedPkt.Private.HopLimit
 			msg := receivedPkt.Private.Text
 
-			if(dest == gossiper.Name) {
-				fmt.Println("PRIVATE origin", origin, "hop-limit", hopLimit, "contents", msg)
-			} else {
-
-				//fmt.Println("Rerouting", msg, "from", origin, "to", dest)
-
-				privateMsg := PrivateMessage{
+			privateMsg := PrivateMessage{
 	                Origin : origin,
 	                ID : receivedPkt.Private.ID,
 	                Text : msg,
 	                Destination : dest,
 	                HopLimit : hopLimit,
             	}
+
+			if(dest == gossiper.Name) {
+				fmt.Println("PRIVATE origin", origin, "hop-limit", hopLimit, "contents", msg)
+				gossiper.PrivateMessages = append(gossiper.PrivateMessages, privateMsg)
+			} else {
+
+				//fmt.Println("Rerouting", msg, "from", origin, "to", dest)
 
             	address := getAddressFromRoutingTable(gossiper, dest)
 
@@ -703,8 +708,8 @@ func main() {
 		}
 
 		go listenUIPort(gossiper)
-		listenGossipPort(gossiper)
-		//go antiEntropy(gossiper)
+		go listenGossipPort(gossiper)
+		go antiEntropy(gossiper)
 
 		r := mux.NewRouter()
 
@@ -720,7 +725,12 @@ func main() {
 		r.HandleFunc("/route", func(w http.ResponseWriter, r *http.Request) {
 		    CloseNodeHandler(gossiper, w, r)
 		})
+		r.HandleFunc("/privateMessage", func(w http.ResponseWriter, r *http.Request) {
+		    PrivateMessageHandler(gossiper, w, r)
+		})
 
 	    http.ListenAndServe(":8080", handlers.CORS()(r))
 	}
+
+	// for routing messages : map of [ip] -> (origin, lastID)
 }

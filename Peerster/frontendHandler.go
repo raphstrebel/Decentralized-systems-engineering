@@ -33,7 +33,6 @@ func IDHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
 	7. If no (frontend sends a new message) :
 		8. Do as in "listenUIPort"
 */
-
 func MessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
 
@@ -43,7 +42,7 @@ func MessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) 
 
 	    nb_messages := len(gossiper.RumorMessages)
 
-	    if(nb_messages-1 <= gossiper.LastRumorSentIndex) {
+	    if(gossiper.LastRumorSentIndex >= nb_messages-1) {
 	    	return
 	    }
 
@@ -77,7 +76,7 @@ func MessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) 
 	        Text: msg,
 		}
 
-	    gossiper.NextClientMessageID ++
+	    gossiper.NextClientMessageID++
 
 		stateID := updateStatusAndRumorArray(gossiper, rumorMessage, false)
 		
@@ -90,8 +89,42 @@ func MessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) 
 		        }
 			}
 		}
+	}
+}
+
+func PrivateMessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+
+    if(r.FormValue("Update") == "") { // Send private messages to frontend
+    	// Send last private messages, keep track of index of last one sent
+	    json := simplejson.New()
+
+	    nb_private_messages := len(gossiper.PrivateMessages)
+
+	    if(nb_private_messages-1 <= gossiper.LastPrivateSentIndex) {
+	    	return
+	    }
+
+	    privateMessageOriginArray := []string{}
+	    privateMessageTextArray := []string{}
+
+	    for i := gossiper.LastPrivateSentIndex + 1; i < nb_private_messages; i++ {
+	    	privateMessageOriginArray = append(privateMessageOriginArray, gossiper.PrivateMessages[i].Origin)
+	    	privateMessageTextArray = append(privateMessageTextArray, gossiper.PrivateMessages[i].Text)
+	    }
+
+	    gossiper.LastPrivateSentIndex = nb_private_messages - 1
+
+		json.Set("PrivateMessageText", privateMessageTextArray)
+		json.Set("PrivateMessageOrigin", privateMessageOriginArray)
+
+		payload, err := json.MarshalJSON()
+		isError(err)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(payload)
 	} else if(r.FormValue("PrivateMessage") != "") {
-		fmt.Println("Received private message :", r.FormValue("PrivateMessage"), "to", r.FormValue("Destination"))
+		//fmt.Println("Received private message :", r.FormValue("PrivateMessage"), "to", r.FormValue("Destination"))
 		dest := r.FormValue("Destination")
 
 		privateMsg := PrivateMessage{

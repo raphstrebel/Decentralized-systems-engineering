@@ -62,10 +62,12 @@ type Gossiper struct {
 	StatusPacket *StatusPacket
 	SafeRumors SafeRumor
 	RumorMessages []RumorMessage
+	PrivateMessages []PrivateMessage
 	LastRumor RumorMessage
 	SafeTimers SafeTimer
 	TimersBeingChanged bool
 	LastRumorSentIndex int
+	LastPrivateSentIndex int
 	StatusOfGUI map[string]uint32
 	LastNodeSentIndex int 
 	SentCloseNodes []string
