@@ -10,6 +10,7 @@ import(
 type ClientPacket struct {
     Message *NormalMessage
     Private *PrivateMessage
+    File *FileMessage
 }
 
 type NormalMessage struct {
@@ -22,6 +23,10 @@ type PrivateMessage struct {
     Text string
     Destination string
     HopLimit uint32
+}
+
+type FileMessage struct {
+    FileName string
 }
 
 func isError(err error) {
@@ -58,8 +63,6 @@ func main() {
 
     gossiperAddr := "127.0.0.1:" + *UIPort
 
-    fmt.Println(file)
-
     if(*dest != "") {
         if(*msg != "") {
             privateMsg := &PrivateMessage{
@@ -80,7 +83,16 @@ func main() {
         }
 
         packet := ClientPacket{Message: message}
+        sendPacket(packet, gossiperAddr)
+    }
 
+    if(*file != "") {
+        // check if the file exists ?
+        fileMessage := &FileMessage{
+            FileName: *file,
+        }
+
+        packet := ClientPacket{File: fileMessage}
         sendPacket(packet, gossiperAddr)
     }
 

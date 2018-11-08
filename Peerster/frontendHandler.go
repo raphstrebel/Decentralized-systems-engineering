@@ -217,17 +217,13 @@ func CloseNodeHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request
 	    closeNodesArray := []string{}
 	    var n_str string
 
-//	    for i := nb_close_nodes_sent; i < nb_close_nodes; i++ {
-	    	for _,n := range close_nodes {
-	    		n_str = n.Interface().(string)
-	    		if(!contains(gossiper.SentCloseNodes, n_str)) {
-	    			gossiper.SentCloseNodes = append(gossiper.SentCloseNodes, n_str)
-	    			closeNodesArray = append(closeNodesArray, n_str)
-	    		} 
-	    	}
-//	    }
-
-//	    gossiper.LastCloseNodeSentIndex = nb_close_nodes - 1
+    	for _,n := range close_nodes {
+    		n_str = n.Interface().(string)
+    		if(!contains(gossiper.SentCloseNodes, n_str)) {
+    			gossiper.SentCloseNodes = append(gossiper.SentCloseNodes, n_str)
+    			closeNodesArray = append(closeNodesArray, n_str)
+    		} 
+    	}
 
 	    json.Set("CloseNode", closeNodesArray)
 
@@ -252,5 +248,15 @@ func CloseNodeHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request
 
         address := getAddressFromRoutingTable(gossiper, dest)
 		sendPrivateMsgToSpecificPeer(gossiper, privateMsg, address)
+    }   
+}
+
+func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+
+	if(r.FormValue("Update") != "") {
+        filename := r.FormValue("FileName")
+        file := computeFileIndices(filename)
+        fmt.Println("GOT A FILE  !!!!!!!!!", file)
     }   
 }

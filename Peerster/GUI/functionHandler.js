@@ -20,7 +20,7 @@ function getMyID() {
 		function(json) {
 			myID = json.ID;
 		  	const paragraph = document.createElement('h2');
-			paragraph.textContent = myID;//json.ID;
+			paragraph.textContent = myID;
 			container_element = document.getElementById('idBoxID');
 			container_element.appendChild(paragraph);
 		}
@@ -228,8 +228,35 @@ function addPrivateMessage(message, origin) {
 }
 
 function shareFile() {
-	var file = document.getElementById("fileID");
-	console.log("file opened");
+	var filename = getFileName(document.getElementById("fileID"));
+
+	if(filename == "") {
+		return;
+	}
+
+	// Then send filepath to server :	
+	$.ajax({
+	  type: "POST",
+	  url: SERVER_ADDRESS + '/fileSharing', 
+	  data: {FileName: filename, Update: true},
+	  dataType: 'jsonp'
+	});
+}
+
+// help from : https://stackoverflow.com/questions/857618/javascript-how-to-extract-filename-from-a-file-input-control
+function getFileName(file) {
+	//var file = document.getElementById("fileID");
+	var fullPath = file.value;
+
+	if (fullPath) {
+	    var startIndex = (fullPath.indexOf('\\') >= 0 ? fullPath.lastIndexOf('\\') : fullPath.lastIndexOf('/'));
+	    var filename = fullPath.substring(startIndex);
+	    if (filename.indexOf('\\') === 0 || filename.indexOf('/') === 0) {
+	        filename = filename.substring(1);
+	    }
+	}
+
+	return filename;
 }
 
 window.onload = function() {
@@ -237,13 +264,13 @@ window.onload = function() {
 	showMessages();
 	showAllNodes();
 
-	// Periodic 1sec get
+	/* Periodic 1sec get
     setInterval(function(){ 
 		getNewMessages();
 		getNewNodes(); 
 		getNewCloseNodes();
 		getNewPrivateMessages();
-	}, 1000);
+	}, 1000);*/
 };
 
 

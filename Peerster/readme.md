@@ -30,3 +30,9 @@ I added the following github libraries :
 3) Inside the main() :
 - At line 803 : add a "go " so that you have "go antiEntropy(gossiper)" instead of simply "antiEntropy(gossiper)"
 - erase the "backslash-star" characters at lines 805 and 819.
+
+
+
+HOMEWORK 2 :
+
+I assume that rtimer is greater or equal to 2 (otherwise I must change the GET methods in the frontend to get new messages less than every second, which does not really make sense).

@@ -551,7 +551,12 @@ func listenUIPort(gossiper *Gossiper) {
 
 			address := getAddressFromRoutingTable(gossiper, dest)
 			sendPrivateMsgToSpecificPeer(gossiper, privateMsg, address)
-		} 
+		} else if(receivedPkt.File != nil) {
+			filename := receivedPkt.File.FileName
+			file := computeFileIndices(filename)
+
+			fmt.Println("GOT A FILE  !!!!!!!!!", file)
+		}
     }
 }
 
@@ -728,9 +733,15 @@ func main() {
 		r.HandleFunc("/privateMessage", func(w http.ResponseWriter, r *http.Request) {
 		    PrivateMessageHandler(gossiper, w, r)
 		})
+		r.HandleFunc("/fileSharing", func(w http.ResponseWriter, r *http.Request) {
+		    FileSharingHandler(gossiper, w, r)
+		})
 
 	    http.ListenAndServe(":8080", handlers.CORS()(r))
 	}
 
 	// for routing messages : map of [ip] -> (origin, lastID)
+	// rumor messages to send to frnotend should be a stack
+	// frontend should send number of messages it has (id of last received) so that when restarting frontend you have them all
+
 }

@@ -9,6 +9,7 @@ import(
 type ClientPacket struct {
     Message *NormalMessage
     Private *PrivateMessage
+    File *FileMessage
 }
 
 type NormalMessage struct {
@@ -33,6 +34,10 @@ type PrivateMessage struct {
     Text string
     Destination string
     HopLimit uint32
+}
+
+type FileMessage struct {
+    FileName string
 }
 
 type PeerStatus struct {
