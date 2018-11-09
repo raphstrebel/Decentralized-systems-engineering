@@ -3,498 +3,12 @@ package main
 import(
 	"fmt"
 	"flag"
-	"net"
 	"protobuf"
-	"strings"
 	"math/rand"
-	"time"
 	"mux"
     "handlers"
     "net/http"
-    "reflect"
 )
-
-func isError(err error) {
-    if err  != nil {
-        fmt.Println("An error occurred : " , err)
-    }
-}
-
-func contains(array []string, s string) bool {
-	for _, elem := range array {
-		if s == elem {
-			return true
-		}
-	}
-	return false
-}
-
-// Function to update the list of known peers of our gossiper
-func updatePeerList(gossiper *Gossiper, peerAddr string) {
-	if(!contains(gossiper.Peers, peerAddr)) {
-		gossiper.Peers = append(gossiper.Peers, peerAddr)
-		if(len(gossiper.Peers_as_single_string) != 0) {
-			gossiper.Peers_as_single_string = gossiper.Peers_as_single_string + ","
-	    }
-	    gossiper.Peers_as_single_string = gossiper.Peers_as_single_string + peerAddr
-    }
-}
-
-// Function to update the routing table of our gossiper
-func updateRoutingTable(gossiper *Gossiper, rumor RumorMessage, address string) bool {
-	if(rumor.Origin == gossiper.Name) {
-		return false
-	}
-
-	if(len(gossiper.RoutingTable[rumor.Origin]) == 0) { // We do not know a path to this origin
-		fmt.Println("MUST UPDATE DSDV")
-		gossiper.RoutingTable[rumor.Origin] = address
-		return true
-	} else if(gossiper.RoutingTable[rumor.Origin] != address) { // The address needs to be updated
-		fmt.Println("MUST UPDATE DSDV")
-		gossiper.RoutingTable[rumor.Origin] = address
-		return true
-	} else {
-		fmt.Println("MUST NOT UPDATE DSDV")
-		return false
-	}
-}
-
-/* 
-	This method updates our rumor array by appending the rumor if it is unseen.
-	This method also updates in our status packet the "next id" of the peer that we received this rumor from.
-	Returns a string : "past", "present", "future"
-*/
-func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMessage bool) string {
-	//fmt.Println("inside update status and rumor array with :", rumor)
-	// This is the first rumor we receive
-	if(gossiper.StatusPacket == nil) {
-		//fmt.Println("Table is nil !")
-		if(rumor.ID == 1){
-			//fmt.Println("First rumor", rumor)
-			// add rumor to rumors from this origin
-			gossiper.SafeRumors.RumorMessages[rumor.Origin] = []RumorMessage{rumor}
-			if(!isRouteMessage) {
-				gossiper.RumorMessages = []RumorMessage{rumor}
-			}
-			gossiper.StatusPacket = &StatusPacket{[]PeerStatus{PeerStatus{rumor.Origin, rumor.ID+1}}}
-			return "present"
-			// return true
-		}  else {
-			//fmt.Println("rumor is future...", rumor)
-			return "future"
-			//return false
-		}
-	} 
-
-	knownOrigin := false
-	//isFutureID := false
-	//isPastID := false
-
-	// Check our statusPacket to see if we already have the rumor
-	for index,peerStatus := range gossiper.StatusPacket.Want {
-		// If we have already seen this identifier 
-		if(rumor.Origin == peerStatus.Identifier) {
-			knownOrigin = true
-		}
-		// This is the next message id (not some future message)
-		if(knownOrigin) {
-			if(rumor.ID == peerStatus.NextID) {
-				gossiper.StatusPacket.Want[index].NextID += 1
-				// store rumor in rumor array
-				gossiper.SafeRumors.RumorMessages[rumor.Origin] = append(gossiper.SafeRumors.RumorMessages[rumor.Origin], rumor)
-				if(!isRouteMessage) {
-					gossiper.RumorMessages = append(gossiper.RumorMessages, rumor)
-				}
-				return "present"
-				//return true
-			} else if(rumor.ID > peerStatus.NextID) {
-				//fmt.Println("rumor is future !!", rumor)
-				//isFutureID = true
-				return "future"
-			} else if(rumor.ID < peerStatus.NextID) {
-				//isPastID = true
-				return "past"
-			}
-		}
-	}
-
-	if(!knownOrigin) {
-		//fmt.Println("Unknown origin")
-		if(rumor.ID == 1) {
-			gossiper.StatusPacket.Want = append(gossiper.StatusPacket.Want, PeerStatus{rumor.Origin, rumor.ID+1})
-			gossiper.SafeRumors.RumorMessages[rumor.Origin] = append(gossiper.SafeRumors.RumorMessages[rumor.Origin], rumor)
-			if(!isRouteMessage) {
-				gossiper.RumorMessages = append(gossiper.RumorMessages, rumor)
-			}
-			return "present"
-			//return true
-		} else {
-			//fmt.Println("x. rumor is future:", rumor.ID, "", rumor.Origin, "", rumor)
-			return "future"
-			//return false
-		}
-	}
-
-	return ""
-    /* The rumor is either already seen or this is not the next rumor we want from this origin
-    if(isFutureID && !isPastID) {
-    	return "future"
-    } else if(!isFutureID && isPastID) {
-    	return  "past"
-    } else {
-    	fmt.Println("Error : Future and past id", rumor.ID, "with", gossiper.StatusPacket.Want)
-    	return ""
-    }*/
-    //return false
-}   
-
-func getRumorFromArray(rumorArray []RumorMessage, id uint32) RumorMessage { 
-	var nilRumor RumorMessage
-
-	for _,rumor := range rumorArray {
-		if(rumor.ID == id) {
-			return rumor
-		}
-	}
-
-	return nilRumor
-}
-
-/*
-	Compares gossiper's status (Want) with that of the sender of the peerStatus
-	If there are some messages that we received and the other gossiper has not seen, we return (next rumor he wants, nil)
-	If there are some that the other peer has and we don't, we return (nil, status)
-	If we are in sync, we return nil, nil
-*/
-func compareStatus(gossiper *Gossiper, otherPeerStatus []PeerStatus, peerAddress string) (*RumorMessage, *StatusPacket) {
-
-	var nilRumor *RumorMessage
-	var nilStatus *StatusPacket
-	var foundIdentifier bool
-
-	// Check if our statusPacket is empty
-	if(len(gossiper.StatusPacket.Want) == 0) {
-		return nilRumor, nilStatus
-	}
-
-	var rumorToSend RumorMessage
-
-	gossiper.SafeRumors.mux.Lock()
-
-	// Check if other Peer status packet is empty (send him the any rumor with ID = 1 if it is the case)
-	if(len(otherPeerStatus) == 0) {
-		for _, key := range reflect.ValueOf(gossiper.SafeRumors.RumorMessages).MapKeys() {
-			// Send first rumor of any key
-			rumorToSend = gossiper.SafeRumors.RumorMessages[key.Interface().(string)][0]
-			gossiper.SafeRumors.mux.Unlock()
-			return &rumorToSend, nilStatus
-		} 
-	}
-
-	sendMsgStatus := false
-
-	// Check if he needs no rumors :
-	for _, myPS := range gossiper.StatusPacket.Want {
-		// Check if other peer has this identifier
-		foundIdentifier = false
-		for _, otherPS := range otherPeerStatus {
-			if(otherPS.Identifier == myPS.Identifier) {
-				foundIdentifier = true
-				// It has this identifier, so check if the nextID is lower than ours
-				if(otherPS.NextID < myPS.NextID) {
-					// Send the rumor with the other peer nextID
-					rumorToSend = getRumorFromArray(gossiper.SafeRumors.RumorMessages[myPS.Identifier], otherPS.NextID)
-					// Just to test :
-					if(rumorToSend.ID != otherPS.NextID) {
-						fmt.Println("ERROR : rumor is not in order of ID's !")
-					}
-
-					gossiper.SafeRumors.mux.Unlock()
-					return &rumorToSend, nilStatus
-				} else if(otherPS.NextID > myPS.NextID) {
-					sendMsgStatus = true
-				}
-			}
-		}
-		// Peer does not have any rumors of this identifier
-		if(!foundIdentifier) {
-			// Return first rumor of this identifier :
-			rumorToSend = getRumorFromArray(gossiper.SafeRumors.RumorMessages[myPS.Identifier], 1)
-			// Just to test :
-			if(rumorToSend.ID != 1) {
-				fmt.Println("ERROR : first rumor is not ID 1 !")
-			}
-
-			gossiper.SafeRumors.mux.Unlock()
-			return &rumorToSend, nilStatus
-		}
-	}
-
-	// other gossiper has messages that we don't have and we don't have anything more to send
-	if(sendMsgStatus) {
-		//unlock map
-		gossiper.SafeRumors.mux.Unlock()
-		return nilRumor, gossiper.StatusPacket
-	}
-
-	// Check if we need rumors from other peer
-	for _, otherPS := range otherPeerStatus {
-		foundIdentifier = false
-		for _, myPS := range gossiper.StatusPacket.Want {
-			if(otherPS.Identifier == myPS.Identifier) {
-				foundIdentifier = true
-				if(myPS.NextID < otherPS.NextID) { // other gossiper has messages that we don't have
-					sendMsgStatus = true
-				}
-			}
-		}
-
-		if(!foundIdentifier) { // Other Peer has received a message from an identifier we didn't have
-			sendMsgStatus = true
-		}
-	}
-
-	// other gossiper has messages that we don't have and we don't have anything more to send
-	if(sendMsgStatus) {
-		//unlock map
-		gossiper.SafeRumors.mux.Unlock()
-		return nilRumor, gossiper.StatusPacket
-	}
-
-	// We have the same rumors as peer (status packets are the same)
-	//unlock map
-	gossiper.SafeRumors.mux.Unlock()
-	return nilRumor, nilStatus
-}    	
-
-// Create a new gossiper
-func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
-	
-	// Listen on UIPort
-	udpUIPort, err := net.ResolveUDPAddr("udp4", UIPort)
-	isError(err)
-	udpUIPortConn, err := net.ListenUDP("udp4", udpUIPort)
-	isError(err)
-
-	
-	// Listen on GossipPort
-	udpGossipPort, err := net.ResolveUDPAddr("udp4", gossipPort)
-	isError(err)
-	udpGossipConn, err := net.ListenUDP("udp4", udpGossipPort)
-	isError(err)
-
-	var p []string
-
-	if(len(peers) != 0) {
-		p = strings.Split(peers, ",")
-	}
-
-	return &Gossiper{
-		UIPortAddr: udpUIPort,
-		UIPortConn: udpUIPortConn,
-		GossipPortAddr: udpGossipPort,
-		GossipPortConn: udpGossipConn,
-		Name: name,
-		Peers_as_single_string: peers,
-		Peers: p,
-		StatusPacket: &StatusPacket{},
-		SafeRumors: SafeRumor{
-			RumorMessages: make(map[string][]RumorMessage),
-		},
-		RumorMessages: []RumorMessage{},
-		PrivateMessages: []PrivateMessage{},
-		SafeTimers: SafeTimer{
-			ResponseTimers: make(map[string][]ResponseTimer),
-		},
-		LastRumorSentIndex: -1,
-		LastPrivateSentIndex: -1,
-		StatusOfGUI: make(map[string]uint32),
-		LastNodeSentIndex: -1,
-		SentCloseNodes: []string{},
-		NextClientMessageID: 1,
-		RoutingTable: make(map[string]string),
-	}
-}
-
-func sendPacketToSpecificPeer(gossiper *Gossiper, packet GossipPacket, address string) {
-	packetBytes, err := protobuf.Encode(&packet)
-	isError(err)
-		 	
-	// Start UDP connection
-	peerAddr, err := net.ResolveUDPAddr("udp4", address)
-	isError(err)
-		 	
-	_,err = gossiper.GossipPortConn.WriteTo(packetBytes, peerAddr)
-	isError(err)
-}
-
-func sendRumorMsgToSpecificPeer(gossiper *Gossiper, rumorMessage RumorMessage, address string) {
-	fmt.Println("MONGERING with", address)
-
-	// Encode message
-	packet := GossipPacket{Rumor: &rumorMessage}
-	sendPacketToSpecificPeer(gossiper, packet, address)
-}
-
-func sendPrivateMsgToSpecificPeer(gossiper *Gossiper, privateMessage PrivateMessage, address string) {
-	// Encode message
-	packet := GossipPacket{Private: &privateMessage}
-	sendPacketToSpecificPeer(gossiper, packet, address)
-}
-
-func sendStatusMsgToSpecificPeer(gossiper *Gossiper, address string) {
-	// Encode message
-	packet := GossipPacket{Status: gossiper.StatusPacket}
-	sendPacketToSpecificPeer(gossiper, packet, address)
-}
-
-// This function makes a new timer and sets the timeout to ONE second. If the timer finishes it calls the method to remove the timer.
-func makeTimer(gossiper *Gossiper, peerAddress string, rumorMessage RumorMessage) {
-
-	respTimer := ResponseTimer{
-		Timer: time.NewTimer(time.Second), 
-		Responder: peerAddress,
-	}
-
-	gossiper.SafeTimers.mux.Lock()
-	_, peerTimerExists := gossiper.SafeTimers.ResponseTimers[peerAddress]
-
-	if(!peerTimerExists) {
-		gossiper.SafeTimers.ResponseTimers[peerAddress] = []ResponseTimer{}
-	} 
-
-	gossiper.SafeTimers.ResponseTimers[peerAddress] = append(gossiper.SafeTimers.ResponseTimers[peerAddress], respTimer)
-	gossiper.SafeTimers.mux.Unlock()
-
-	go func() {
-		<- respTimer.Timer.C
-
-		removeFinishedTimer(gossiper, peerAddress)
-
-		if(rand.Int() % 2 == 0) {
-	        go rumormongering(gossiper, rumorMessage, true)
-	    }
-	        		
-	}()
-}
-
-// This method removes the oldest timer from the peer passed as argument
-func removeFinishedTimer(gossiper *Gossiper, peerAddress string) {
-
-	gossiper.SafeTimers.mux.Lock()
-
-	if(len(gossiper.SafeTimers.ResponseTimers[peerAddress]) == 0) {
-		return
-	} else if(len(gossiper.SafeTimers.ResponseTimers[peerAddress]) == 1) {
-		delete(gossiper.SafeTimers.ResponseTimers, peerAddress)
-	} else {
-		gossiper.SafeTimers.ResponseTimers[peerAddress] = gossiper.SafeTimers.ResponseTimers[peerAddress][1:]
-	}
-
-	gossiper.SafeTimers.mux.Unlock()
-}
-
-// This method returns true if the peer passed as argument is sending a status response, otherwise it returns false
-func isStatusResponse(gossiper *Gossiper, peerAddress string) bool {
-
-	gossiper.SafeTimers.mux.Lock()
-	_, hasTimer := gossiper.SafeTimers.ResponseTimers[peerAddress]
-	gossiper.SafeTimers.mux.Unlock()
-
-	if(!hasTimer) {
-		return false
-	} else {
-		gossiper.SafeTimers.mux.Lock()
-		gossiper.SafeTimers.ResponseTimers[peerAddress][0].Timer.Stop()
-		gossiper.SafeTimers.mux.Unlock()
-		return true
-	}	
-}
-
-func generatePeriodicalRouteMessage(gossiper *Gossiper, rtimer int) {
-	var ticker *time.Ticker
-	var luckyPeer string
-	var routeMessage RumorMessage
-	ticker = time.NewTicker(time.Second * time.Duration(rtimer))
-
-	for {
-		for range ticker.C {
-			if(len(gossiper.Peers) > 0) {
-				routeMessage = RumorMessage{
-					Origin: gossiper.Name,
-					ID: gossiper.NextClientMessageID, // WHAT SHOULD THE ID OF ROUTE MESSAGES BE ?
-					Text: "",
-				}
-
-				gossiper.NextClientMessageID++
-
-				rand.Seed(time.Now().UTC().UnixNano())
-	    		luckyPeer = gossiper.Peers[rand.Intn(len(gossiper.Peers))]
-	    		sendRumorMsgToSpecificPeer(gossiper, routeMessage, luckyPeer)
-	    		makeTimer(gossiper, luckyPeer, routeMessage)
-	    	}
-		}
-	}
-}
-
-// Anti entropy process
-func antiEntropy(gossiper *Gossiper) {
-	var ticker *time.Ticker
-	var luckyPeer string
-	ticker = time.NewTicker(time.Second)
-
-	for {
-		for range ticker.C {
-			if(len(gossiper.Peers) > 0) {
-				rand.Seed(time.Now().UTC().UnixNano())
-	    		luckyPeer = gossiper.Peers[rand.Intn(len(gossiper.Peers))]
-	    		sendStatusMsgToSpecificPeer(gossiper, luckyPeer)
-	    	}
-		}
-	}
-}
-
-// RumorMongering process
-func rumormongering(gossiper *Gossiper, rumorMessage RumorMessage, isRandom bool) {
-
-	rand.Seed(time.Now().UTC().UnixNano())
-
-	if(len(gossiper.Peers) == 0) {
-		return
-	}
-
-    luckyPeer := gossiper.Peers[rand.Intn(len(gossiper.Peers))]
-
-    if(isRandom) {
-    	fmt.Println("FLIPPED COIN sending rumor to", luckyPeer)
-    }
-
-	sendRumorMsgToSpecificPeer(gossiper, rumorMessage, luckyPeer)
-	makeTimer(gossiper, luckyPeer, rumorMessage)
-}
-
-func printStatusReceived(gossiper *Gossiper, peerStatus []PeerStatus, peerAddress string) {
-
-	fmt.Print("STATUS from ", peerAddress, " ") 
-
-	if(len(peerStatus) == 0) {
-		return
-	}
-
-	for _,ps := range peerStatus {
-		fmt.Print("peer ", ps.Identifier, " nextID ", ps.NextID, " ")
-	}
-	fmt.Println()
-}
-
-func getAddressFromRoutingTable(gossiper *Gossiper, dest string) string {
-	if(len(gossiper.RoutingTable[dest]) == 0) {
-		fmt.Println("Error : No such destination :", dest)
-	}
-
-	return gossiper.RoutingTable[dest]
-}
 
 func listenUIPort(gossiper *Gossiper) {
 
@@ -523,8 +37,6 @@ func listenUIPort(gossiper *Gossiper) {
         		Text: msg,
         	}
 
-        	fmt.Println("RECEIVED RUMOR FROM CLIENT ! id : ", gossiper.NextClientMessageID, " text : ", msg)
-
         	gossiper.LastRumor = rumorMessage
         	stateID := updateStatusAndRumorArray(gossiper, rumorMessage, false)
         	gossiper.NextClientMessageID ++
@@ -539,23 +51,54 @@ func listenUIPort(gossiper *Gossiper) {
 	        	}
         	}
 		} else if(receivedPkt.Private != nil) {
-			dest := receivedPkt.Private.Destination
-
 			privateMsg := PrivateMessage{
                 Origin : gossiper.Name,
                 ID : 0,
                 Text : receivedPkt.Private.Text,
-                Destination : dest,
+                Destination : receivedPkt.Private.Destination,
                 HopLimit : 10,
             }
 
-			address := getAddressFromRoutingTable(gossiper, dest)
-			sendPrivateMsgToSpecificPeer(gossiper, privateMsg, address)
-		} else if(receivedPkt.File != nil) {
+			address := getAddressFromRoutingTable(gossiper, receivedPkt.Private.Destination)
+
+			if(address != "") {
+				sendPrivateMsgToSpecificPeer(gossiper, privateMsg, address)
+			}
+		} else if(receivedPkt.File != nil) { // New file to be indexed
+
 			filename := receivedPkt.File.FileName
 			file := computeFileIndices(filename)
 
-			fmt.Println("GOT A FILE  !!!!!!!!!", file)
+			// add to map of indexed files
+			metahash_hex := bytesToHex(file.Metahash)
+			gossiper.IndexedFiles[metahash_hex] = file
+			fmt.Println("Got a file :", metahash_hex)
+
+		} else if(receivedPkt.Request != nil) {
+
+			request_metahash := receivedPkt.Request.Request
+
+			// TODELETE, TOCHANGE, JUST FOR TESTING PURPOSE --------------------------------------------------
+
+			//address := getAddressFromRoutingTable(gossiper, receivedPkt.Request.Destination)
+			address := "127.0.0.1:5001" // TEST
+			_, isIndexed := gossiper.IndexedFiles[request_metahash]
+
+			// Not already downloaded and we know the address
+			//if(!isIndexed && address != "") {
+			if(!isIndexed) { // TEST
+				dataRequest := DataRequest {
+					Origin : gossiper.Name,
+					Destination : receivedPkt.Request.Destination,
+					HopLimit : 10,
+					HashValue : hexToBytes(request_metahash),
+				}
+
+				fmt.Println("Got a request :", dataRequest)
+				sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
+				// to check, should we put destination or address?
+				makeDataRequestTimer(gossiper, receivedPkt.Request.Destination, dataRequest)
+			}
 		}
     }
 }
@@ -602,7 +145,6 @@ func listenGossipPort(gossiper *Gossiper) {
         	}
 
         	tableUpdated = false
-        	fmt.Println("Rumor is :", stateID)
 
         	if(stateID == "present" || stateID == "future") {
 	        	tableUpdated = updateRoutingTable(gossiper, rumorMessage, peerAddr)
@@ -675,17 +217,110 @@ func listenGossipPort(gossiper *Gossiper) {
 				fmt.Println("PRIVATE origin", origin, "hop-limit", hopLimit, "contents", msg)
 				gossiper.PrivateMessages = append(gossiper.PrivateMessages, privateMsg)
 			} else {
-
-				//fmt.Println("Rerouting", msg, "from", origin, "to", dest)
-
             	address := getAddressFromRoutingTable(gossiper, dest)
 
-            	if(hopLimit != 0) {
+            	if(address != "" && hopLimit != 0) {
 					privateMsg.HopLimit--
 					sendPrivateMsgToSpecificPeer(gossiper, privateMsg, address)
 				}
 			}
-		}
+		} else if(receivedPkt.DataRequest != nil) {
+			origin := receivedPkt.DataRequest.Origin
+			dest := receivedPkt.DataRequest.Destination
+			hopLimit := receivedPkt.DataRequest.HopLimit
+			hashValue_bytes := receivedPkt.DataRequest.HashValue
+			hashValue_hex := bytesToHex(hashValue_bytes)
+
+			fmt.Println("Received request : ", origin, dest, hashValue_bytes) // todelete
+
+			if(dest == gossiper.Name) {
+				fmt.Println("It's me !")
+				
+				// TODELETE JUST FOR TESTING PURPOSE ----------------------------------------------
+				address := "127.0.0.1:5000"
+				//address := getAddressFromRoutingTable(gossiper, origin)
+
+				if(address != "") {
+					file, isMetaHash := gossiper.IndexedFiles[hashValue_hex]
+					// check if hashValue is a metafile, if yes send the first chunk
+					if(isMetaHash) {
+						metahash_hex := hashValue_hex
+
+						// add to map nodeToFilesDownloaded
+						_, isDownloading := gossiper.nodeToFilesDownloaded[origin]
+						
+						if(!isDownloading) {
+							gossiper.nodeToFilesDownloaded[origin] = []FileAndIndex{}
+						}
+
+						gossiper.nodeToFilesDownloaded[origin] = append(gossiper.nodeToFilesDownloaded[origin], FileAndIndex{
+							Metahash : metahash_hex,
+							NextIndex : 0,
+						})
+
+						dataReply := DataReply{
+							Origin : gossiper.Name,
+							Destination : origin,
+							HopLimit : 10,
+							HashValue : file.Metafile[0:32], // hash of first chunk
+							Data : getChunkByIndex(file.Name, 0).ByteArray, // get first chunk
+						}
+						fmt.Println("Sending response :", dataReply, " to :", address)
+						fmt.Println("nodes to files : ", gossiper.nodeToFilesDownloaded)
+						sendDataReplyToSpecificPeer(gossiper, dataReply, address)
+
+					} else {
+						// Check if we are already transmitting a file to the origin of the message
+						//filesBeingDownloaded := []string{gossiper.nodeToFilesDownloaded[origin]}
+						filesBeingDownloaded, isDownloading := gossiper.nodeToFilesDownloaded[origin]
+						nextChunkHash := hashValue_hex
+						
+						if(isDownloading) {
+							chunkToSend := checkFilesForHash(gossiper, filesBeingDownloaded, origin, nextChunkHash)
+							dataReply := DataReply{
+								Origin : gossiper.Name,
+								Destination : origin,
+								HopLimit : 10,
+								HashValue : hashValue_bytes, // hash of first chunk
+								Data : chunkToSend.ByteArray, // get first chunk
+							}
+
+							sendDataReplyToSpecificPeer(gossiper, dataReply, address)
+						}
+					}
+				}
+			} else {
+
+				address := getAddressFromRoutingTable(gossiper, dest)
+
+            	if(address != "" && hopLimit != 0) {
+            		dataRequest := DataRequest {
+						Origin : origin,
+						Destination : dest,
+						HopLimit : hopLimit - 1,
+						HashValue : hashValue_bytes,
+					}
+
+					sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
+				}
+			}
+
+		} else if(receivedPkt.DataReply != nil) {
+			// check if we are expecting a reply from "origin" and cancel timer 
+			origin := receivedPkt.DataReply.Origin
+
+			address := gossiper.RoutingTable[origin]
+
+			if(address != "")
+			isReponse := isDataResponse(gossiper, origin)
+	    	
+	    	if(isResponse) {
+	    		removeFinishedDataRequestTimer(gossiper, peerAddr)
+	    	}
+
+	    	// check that hashValue is hash of data
+
+		}  
     }
 }
 
@@ -713,8 +348,8 @@ func main() {
 		}
 
 		go listenUIPort(gossiper)
-		go listenGossipPort(gossiper)
-		go antiEntropy(gossiper)
+		listenGossipPort(gossiper)
+		//antiEntropy(gossiper)
 
 		r := mux.NewRouter()
 
@@ -741,7 +376,7 @@ func main() {
 	}
 
 	// for routing messages : map of [ip] -> (origin, lastID)
-	// rumor messages to send to frnotend should be a stack
+	// rumor messages to send to frontend should be a stack
 	// frontend should send number of messages it has (id of last received) so that when restarting frontend you have them all
 
 }
