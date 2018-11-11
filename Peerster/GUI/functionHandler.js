@@ -97,6 +97,7 @@ function sendMessage() {
 		return;
 	}
 
+
 	// Then send message to server :	
 	$.ajax({
 	  type: "POST",
@@ -104,6 +105,10 @@ function sendMessage() {
 	  data: {Message: messageInput.value, Update: true},
 	  dataType: 'jsonp'
 	});
+
+	messages.push(messageInput.value)
+	showMessages()
+
 }	
 
 function sendNode() {
@@ -137,6 +142,10 @@ function sendPrivateMessage() {
 	  data: {Destination: privateNode, PrivateMessage: messageInput.value, Update: true},
 	  dataType: 'jsonp'
 	});
+
+	private_messages_texts.push(messageInput.value)
+	private_messages_origins.push(myID)
+	showPrivateMessages()
 }	
 
 // Get a file of a close node by entering hexa metahash
@@ -239,7 +248,12 @@ function addCloseNode(node) {
 
 function addPrivateMessage(message, origin) {
 	const paragraph = document.createElement('li');
-	paragraph.textContent = "Private message from : " + origin + " : \n" + message;
+	if(origin !== myID) {
+		paragraph.textContent = "Private message from : " + origin + " : \n" + message;
+	} else {
+		paragraph.textContent = "Private message to " + privateNode + " : \n" + message;
+	}
+
 	container_element = document.getElementById('chatboxID');
 	container_element.appendChild(paragraph);
 }
@@ -287,7 +301,7 @@ window.onload = function() {
 		getNewNodes(); 
 		getNewCloseNodes();
 		getNewPrivateMessages();
-	}, 1000);
+	}, 3000);
 };
 
 

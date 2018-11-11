@@ -65,12 +65,14 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 	// This is the first rumor we receive
 	if(gossiper.StatusPacket == nil) {
 		if(rumor.ID == 1){
+			gossiper.SafeRumors.mux.Lock()
 			// add rumor to rumors from this origin
 			gossiper.SafeRumors.RumorMessages[rumor.Origin] = []RumorMessage{rumor}
 			if(!isRouteMessage) {
 				gossiper.RumorMessages = []RumorMessage{rumor}
 			}
 			gossiper.StatusPacket = &StatusPacket{[]PeerStatus{PeerStatus{rumor.Origin, rumor.ID+1}}}
+			gossiper.SafeRumors.mux.Unlock()
 			return "present"
 		}  else {
 			return "future"
@@ -89,11 +91,14 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 		if(knownOrigin) {
 			if(rumor.ID == peerStatus.NextID) {
 				gossiper.StatusPacket.Want[index].NextID += 1
+
+				gossiper.SafeRumors.mux.Lock()
 				// store rumor in rumor array
 				gossiper.SafeRumors.RumorMessages[rumor.Origin] = append(gossiper.SafeRumors.RumorMessages[rumor.Origin], rumor)
 				if(!isRouteMessage) {
 					gossiper.RumorMessages = append(gossiper.RumorMessages, rumor)
 				}
+				gossiper.SafeRumors.mux.Unlock()
 				return "present"
 			} else if(rumor.ID > peerStatus.NextID) {
 				return "future"
@@ -106,7 +111,9 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 	if(!knownOrigin) {
 		if(rumor.ID == 1) {
 			gossiper.StatusPacket.Want = append(gossiper.StatusPacket.Want, PeerStatus{rumor.Origin, rumor.ID+1})
+			gossiper.SafeRumors.mux.Lock()
 			gossiper.SafeRumors.RumorMessages[rumor.Origin] = append(gossiper.SafeRumors.RumorMessages[rumor.Origin], rumor)
+			gossiper.SafeRumors.mux.Unlock()
 			if(!isRouteMessage) {
 				gossiper.RumorMessages = append(gossiper.RumorMessages, rumor)
 			}
@@ -463,10 +470,10 @@ func printStatusReceived(gossiper *Gossiper, peerStatus []PeerStatus, peerAddres
 	}
 
 	// JUST FOR TEST PURPOSES TESTING
-	//for _,ps := range peerStatus {
-		//fmt.Print("peer ", ps.Identifier, " nextID ", ps.NextID, " ")
-	//}
-	//fmt.Println()
+	for _,ps := range peerStatus {
+		fmt.Print("peer ", ps.Identifier, " nextID ", ps.NextID, " ")
+	}
+	fmt.Println()
 }
 
 func getAddressFromRoutingTable(gossiper *Gossiper, dest string) string {

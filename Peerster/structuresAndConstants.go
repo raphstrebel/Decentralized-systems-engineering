@@ -154,6 +154,7 @@ type ResponseTimer struct {
 	Responder string 
 }
 
+// to delete ?
 type Chunk struct {
     ByteArray []byte
 }

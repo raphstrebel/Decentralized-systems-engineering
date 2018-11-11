@@ -54,6 +54,7 @@ func MessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) 
 	    	messageArray = append(messageArray, msg)
 	    }
 
+
 	    gossiper.LastRumorSentIndex = nb_messages - 1
 
 		json.Set("Message", messageArray)
@@ -65,6 +66,7 @@ func MessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) 
 		w.Write(payload)
 	} else if(r.FormValue("Message") != ""){ // Get message from frontend
 		//  Do as in "listenUIPort" 
+
 		msg := r.FormValue("Message")
 
 		fmt.Println("CLIENT MESSAGE", msg) 	
@@ -124,7 +126,6 @@ func PrivateMessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Re
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(payload)
 	} else if(r.FormValue("PrivateMessage") != "") {
-		//fmt.Println("Received private message :", r.FormValue("PrivateMessage"), "to", r.FormValue("Destination"))
 		dest := r.FormValue("Destination")
 
 		privateMsg := PrivateMessage{
@@ -266,8 +267,6 @@ func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Reque
 			gossiper.SafeIndexedFiles.mux.Lock()
 			gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = file
 			gossiper.SafeIndexedFiles.mux.Unlock()
-
-			fmt.Println("Metahash of file indexed is :", metahash_hex)
 		} else {
 			fmt.Println("Error : file too big :", file.Size)
 		}

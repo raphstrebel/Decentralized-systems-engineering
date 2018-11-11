@@ -8,6 +8,7 @@ import(
     "os"
     "io"
     "bytes"
+    "regexp"
 )
 
 func createEmptyFile(filename string) {
@@ -67,27 +68,95 @@ func computeHash(b []byte) []byte {
     return h.Sum(nil)
 }
 
-func checkFilesForNextChunk(gossiper *Gossiper, filesBeingDownloaded []FileAndIndex, origin string, nextChunkHash string) ([]byte, bool) {
-    var chunk []byte
+// return next chunk, found (boolean), metahash
+//func checkFilesForNextChunk(gossiper *Gossiper, filesBeingDownloaded []FileAndIndex, origin string, nextChunkHash string) ([]byte, bool, string) {
+func checkFilesForNextChunk(gossiper *Gossiper, origin string, nextChunkHash string) (string, bool, string) {
+    var chunk string
 
     gossiper.SafeIndexedFiles.mux.Lock()
 
-    for i, fileAndIndex := range filesBeingDownloaded {
-        f := gossiper.SafeIndexedFiles.IndexedFiles[fileAndIndex.Metahash]
-        chunk = getChunkByIndex(f.Name, fileAndIndex.NextIndex)
-        chunk_hash_hex := bytesToHex(computeHash(chunk))
+    // go over all metafiles
 
-        if(chunk_hash_hex == nextChunkHash) {
-            gossiper.SafeRequestOriginToFileAndIndexes.mux.Lock()
-            gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[origin][i].NextIndex++
-            gossiper.SafeRequestOriginToFileAndIndexes.mux.Unlock()
-            gossiper.SafeIndexedFiles.mux.Unlock()
-            return chunk, true
+    for _, file := range gossiper.SafeIndexedFiles.IndexedFiles { 
+
+        metafile := file.Metafile
+        index := 0
+
+        re := regexp.MustCompile(`[a-f0-9]{64}`)
+        metafileArray := re.FindAllString(metafile, -1) // split metafile into array of 64 char chunks
+
+        for _,chunkHash := range metafileArray {
+            if(chunkHash == nextChunkHash) {
+                //fmt.Println("FOUND CHUNK WITH HASH", nextChunkHash)
+                // get the file chunk with this hash 
+                nextChunk := bytesToHex(getChunkByIndex(file.Name, index))
+                gossiper.SafeIndexedFiles.mux.Unlock()
+                //fmt.Println("HASH OF CHUNK (SANITY CHECK:", bytesToHex(computeHash(hexToBytes(nextChunk))))
+                return nextChunk, true, file.Metahash
+            }
+
+            index++
+        }
+    }
+
+    gossiper.SafeIndexedFiles.mux.Unlock()
+    return chunk, false, ""
+
+}
+
+
+
+
+
+
+    /*
+
+    for i, fileAndIndex := range filesBeingDownloaded {
+
+        f := gossiper.SafeIndexedFiles.IndexedFiles[fileAndIndex.Metahash]
+
+
+
+        //fmt.Println("We are at index :", fileAndIndex.NextIndex)
+
+        j := 0
+        k := 0
+
+        for j < f.Size {
+            chunk = getChunkByIndex(f.Name, k)
+            chunk_hash_hex := bytesToHex(computeHash(chunk))
+
+            fmt.Println("The two hashes compared :", chunk_hash_hex, " and ", nextChunkHash)
+
+            if(chunk_hash_hex == nextChunkHash) {
+                fmt.Println("EQUAL")
+                gossiper.SafeIndexedFiles.mux.Unlock()
+                return chunk, true, i
+            }
+
+
+            j += CHUNK_SIZE
+            k++
+        }
+
+
+        /* must loop over all past indices also
+        for j := 0; j < fileAndIndex.NextIndex+1; j++ {
+            chunk = getChunkByIndex(f.Name, fileAndIndex.NextIndex)
+            chunk_hash_hex := bytesToHex(computeHash(chunk))
+
+            fmt.Println("The two hashes compared :", chunk_hash_hex, " and ", nextChunkHash)
+
+            if(chunk_hash_hex == nextChunkHash) {
+                fmt.Println("EQUAL")
+                gossiper.SafeIndexedFiles.mux.Unlock()
+                return chunk, true, i
+            }
         }
     }
     gossiper.SafeIndexedFiles.mux.Unlock()
-    return chunk, false
-}
+    return chunk, false, -1
+    }*/
 
 // returns index of file, isMetafile, nextChunkHash, isLastChunk
 func getNextChunkHashToRequest(gossiper *Gossiper, fileOrigin string, hashValue string) (int, bool, string, bool) {
@@ -204,7 +273,10 @@ func getChunkByIndex(filename string, index int) []byte {
     chunk := make([]byte, CHUNK_SIZE) // a chunk of the file
 
     n, err := reader.Read(chunk)
-    isError(err)
+
+    if(err != nil) {
+        fmt.Println("Error :", err, " cannot read index :", index, " of file ", filename, " n is :", n)
+    }
 
     return chunk[0:n]
 
