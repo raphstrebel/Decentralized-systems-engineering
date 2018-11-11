@@ -7,7 +7,58 @@ import(
     "hash"
     "os"
     "io"
+    "bytes"
 )
+
+func createEmptyFile(filename string) {
+    _, err := os.Stat("Peerster/_SharedFiles/" + filename)
+
+    if(os.IsNotExist(err)) {
+        _, err2 := os.Create("Peerster/_SharedFiles/" + filename)
+        isError(err2)
+    } else if(err != nil) {
+        isError(err)
+    }
+}
+
+func writeChunkToFile(filename string, chunk []byte) {
+    _, err := os.Stat("Peerster/_SharedFiles/" + filename)
+
+    if(os.IsNotExist(err)) {
+        os.Create("Peerster/_SharedFiles/" + filename)
+    } else if(err != nil) {
+        isError(err)
+        return
+    }
+
+    f, err := os.OpenFile("Peerster/_SharedFiles/"+filename, os.O_APPEND|os.O_WRONLY, 0600)
+    isError(err)
+
+    defer f.Close()
+
+    _, err = f.Write(chunk)
+    isError(err)
+}
+
+func copyFileToDownloads(filename string) {
+    _, err := os.Stat("Peerster/_SharedFiles/" + filename)
+
+    if(err != nil) {
+        isError(err)
+        return
+    }
+
+    sourceFile, err := os.Open("Peerster/_SharedFiles/" + filename)
+    isError(err)
+    defer sourceFile.Close()
+
+    destFile, err := os.Create("Peerster/_Downloads/" + filename)
+    isError(err)
+    defer destFile.Close()
+
+    _, err = io.Copy(destFile, sourceFile)
+    isError(err)
+}
 
 func computeHash(b []byte) []byte {
     var h hash.Hash
@@ -16,28 +67,117 @@ func computeHash(b []byte) []byte {
     return h.Sum(nil)
 }
 
-func checkFilesForHash(gossiper *Gossiper, filesBeingDownloaded []FileAndIndex, origin string, nextChunkHash string) Chunk {
-    var chunk Chunk
-    var h hash.Hash
+func checkFilesForNextChunk(gossiper *Gossiper, filesBeingDownloaded []FileAndIndex, origin string, nextChunkHash string) []byte {
+    var chunk []byte
 
     for i, fileAndIndex := range filesBeingDownloaded {
         f := gossiper.IndexedFiles[fileAndIndex.Metahash]
         chunk = getChunkByIndex(f.Name, fileAndIndex.NextIndex)
-
-        h = sha256.New()
-        h.Write(chunk.ByteArray)
-        chunk_hash_hex := bytesToHex(h.Sum(nil))
+        chunk_hash_hex := bytesToHex(computeHash(chunk))
 
         if(chunk_hash_hex == nextChunkHash) {
-            gossiper.nodeToFilesDownloaded[origin][i].NextIndex++
+            gossiper.RequestOriginToFileAndIndex[origin][i].NextIndex++
             return chunk
         }
     }
-
     return chunk
 }
 
-func getChunkByIndex(filename string, index int) Chunk {
+// returns index of file, isMetafile, nextChunkHash, isLastChunk
+func getNextChunkHashToRequest(gossiper *Gossiper, fileOrigin string, hashValue string) (int, bool, string, bool) {
+    var nextChunkHash string
+    isMetafile := false
+    indexOfFile := -1
+    var metahash_hex string
+
+    filesOfOrigin, exists := gossiper.RequestDestinationToFileAndIndex[fileOrigin]
+
+    if(!exists) {
+        return -1, false, nextChunkHash, false
+    }
+
+    // First check if we received a metafile
+    for i, fileAndIndex := range filesOfOrigin {
+        metahash_hex = fileAndIndex.Metahash
+        if((fileAndIndex.NextIndex == -1) && (hashValue == metahash_hex)) {
+            // return first chunkHash
+            nextChunkHash = metahash_hex[0:2*HASH_SIZE]
+            isMetafile = true
+            return i, isMetafile, nextChunkHash, false
+        }
+    }
+
+
+
+    // Otherwise we received a chunk, must range over all metafiles and see which chunk hash 
+    for i, fileAndIndex := range filesOfOrigin {
+        
+        metafile_hex := fileAndIndex.Metafile
+        currentIndex := fileAndIndex.NextIndex
+        currentChunkHash := metafile_hex[(currentIndex * 2 * HASH_SIZE) : (currentIndex+1) * 2 * HASH_SIZE]
+
+        if(currentChunkHash == hashValue) {
+
+            index := currentIndex + 1
+
+            if(len(metafile_hex) >  (index + 1) * 2 * HASH_SIZE) {
+                nextChunkHash := metafile_hex[(index * 2 * HASH_SIZE) : (index+1) * 2 * HASH_SIZE]
+                return i, false, nextChunkHash, false
+
+            } else if(len(metafile_hex) ==  (index + 1) * 2 * HASH_SIZE) {
+                nextChunkHash := metafile_hex[index * 2 * HASH_SIZE : (index+1) * 2 * HASH_SIZE]
+                return i, false, nextChunkHash, false
+
+            } else {
+                return i, false, nextChunkHash, true
+            }
+        }
+    }
+
+    return indexOfFile, isMetafile, nextChunkHash, false
+}
+
+// returns index of file, isMetafile, nextChunk
+func getNextChunkToRequest(gossiper *Gossiper, fileOrigin string, hashValue []byte) (int, bool, []byte) {
+    var nextChunk []byte
+    isMetafile := false
+    indexOfFile := -1
+
+    _, exists := gossiper.RequestDestinationToFileAndIndex[fileOrigin]
+
+    if(!exists) {
+        return -1, false, nextChunk
+    }
+
+    // First check if we received a metafile
+    for i, fileAndIndex := range gossiper.RequestDestinationToFileAndIndex[fileOrigin] {
+        if((fileAndIndex.NextIndex == -1) && bytes.Equal(hashValue, hexToBytes(fileAndIndex.Metahash))) {
+            // return first chunk
+            nextChunk = getChunkByIndex(gossiper.IndexedFiles[bytesToHex(hashValue)].Name, 0)
+            isMetafile = true
+            return i, isMetafile, nextChunk
+        }
+    }
+
+    // Otherwise we received a chunk, must range over all metafiles and see which chunk hash 
+    for i, fileAndIndex := range gossiper.RequestDestinationToFileAndIndex[fileOrigin] {
+        
+        filename := gossiper.IndexedFiles[fileAndIndex.Metahash].Name
+
+        currentChunk := getChunkByIndex(filename, fileAndIndex.NextIndex-1)
+        currentHash := computeHash(currentChunk)
+
+        if(bytes.Equal(currentHash, hashValue)) {
+            nextChunk = getChunkByIndex(filename, fileAndIndex.NextIndex)
+            isMetafile = false
+            return i, isMetafile, nextChunk
+        }
+    }
+
+    return indexOfFile, isMetafile, nextChunk
+}
+
+func getChunkByIndex(filename string, index int) []byte {
     // Load file
     file, err := os.Open("Peerster/_SharedFiles/" + filename)
     isError(err)
@@ -50,10 +190,10 @@ func getChunkByIndex(filename string, index int) Chunk {
 
     chunk := make([]byte, CHUNK_SIZE) // a chunk of the file
 
-    _, err = reader.Read(chunk)
+    n, err := reader.Read(chunk)
     isError(err)
 
-    return Chunk{ByteArray: chunk}
+    return chunk[0:n]
 
 }
 
@@ -115,14 +255,14 @@ func computeFileIndices(filename string) File {
         err = nil
     }
 
-    f.Metafile = metafile    
+    f.Metafile = bytesToHex(metafile)   
 
     // compute metahash
     h = sha256.New()
     h.Write(metafile)
     metahash := h.Sum(nil)
 
-    f.Metahash = metahash
+    f.Metahash = bytesToHex(metahash)
 
     return f
 }

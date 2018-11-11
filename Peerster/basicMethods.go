@@ -25,6 +25,28 @@ func contains(array []string, s string) bool {
 	return false
 }
 
+/*func addMetaFileToFileAndIndex(gossiper *Gossiper, origin string, metahash string, metafile string) {
+
+	for i, fileAndIndex := range gossiper.NodeToFilesDownloaded[origin] {
+		if(fileAndIndex.Metahash == metahash) {
+			gossiper.NodeToFilesDownloaded[origin][i].Metafile = metafile
+			gossiper.NodeToFilesDownloaded[origin][i].NextIndex = 0
+			return true
+		}
+	}
+
+	return false
+}*/
+
+func getIndexOfFileAndIndex(array []FileAndIndex, metahash string) int {
+	for i, elem := range array {
+		if metahash == elem.Metahash {
+			return i
+		}
+	}
+	return -1
+}
+
 func hexToBytes(h string) []byte {
 	b, err := hex.DecodeString(h)
     isError(err)
@@ -261,32 +283,32 @@ func makeTimer(gossiper *Gossiper, peerAddress string, rumorMessage RumorMessage
 }
 
 // This function makes a new timer and sets the timeout to ONE second. If the timer finishes it calls the method to remove the timer.
-func makeDataRequestTimer(gossiper *Gossiper, peerAddress string, dataRequest DataRequest) {
+func makeDataRequestTimer(gossiper *Gossiper, fileOrigin string, dataRequest DataRequest) {
 
 	dataRespTimer := ResponseTimer{
 		Timer: time.NewTimer(5*time.Second), 
-		Responder: peerAddress,
+		Responder: fileOrigin,
 	}
 
 	gossiper.SafeDataRequestTimers.mux.Lock()
-	_, peerTimerExists := gossiper.SafeDataRequestTimers.ResponseTimers[peerAddress]
+	_, peerTimerExists := gossiper.SafeDataRequestTimers.ResponseTimers[fileOrigin]
 
 	if(!peerTimerExists) {
-		gossiper.SafeDataRequestTimers.ResponseTimers[peerAddress] = []ResponseTimer{}
+		gossiper.SafeDataRequestTimers.ResponseTimers[fileOrigin] = []ResponseTimer{}
 	} 
 
-	gossiper.SafeDataRequestTimers.ResponseTimers[peerAddress] = append(gossiper.SafeDataRequestTimers.ResponseTimers[peerAddress], dataRespTimer)
+	gossiper.SafeDataRequestTimers.ResponseTimers[fileOrigin] = append(gossiper.SafeDataRequestTimers.ResponseTimers[fileOrigin], dataRespTimer)
 	gossiper.SafeDataRequestTimers.mux.Unlock()
 
 	go func() {
 		<- dataRespTimer.Timer.C
 
-		removeFinishedDataRequestTimer(gossiper, peerAddress)
+		removeFinishedDataRequestTimer(gossiper, fileOrigin)
 
 		// Send the request again
-		fmt.Println("TIMEOUT!")
-	    sendDataRequestToSpecificPeer(gossiper, dataRequest, peerAddress)
-	    makeDataRequestTimer(gossiper, peerAddress, dataRequest)	
+		//fmt.Println("TIMEOUT!")
+	    sendDataRequestToSpecificPeer(gossiper, dataRequest, gossiper.RoutingTable[fileOrigin])
+	    makeDataRequestTimer(gossiper, fileOrigin, dataRequest)	
 	}()
 }
 
@@ -338,8 +360,9 @@ func isStatusResponse(gossiper *Gossiper, peerAddress string) bool {
 }
 
 func isDataResponse(gossiper *Gossiper, fileOrigin string) bool {
+
 	gossiper.SafeDataRequestTimers.mux.Lock()
-	_, hasTimer := gossiper.SafeTimers.ResponseTimers[fileOrigin]
+	_, hasTimer := gossiper.SafeDataRequestTimers.ResponseTimers[fileOrigin]
 	gossiper.SafeDataRequestTimers.mux.Unlock()
 
 	if(!hasTimer) {
@@ -419,22 +442,26 @@ func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
 		SafeDataRequestTimers: SafeTimer{
 			ResponseTimers: make(map[string][]ResponseTimer),
 		},
-		nodeToFilesDownloaded: make(map[string][]FileAndIndex),
+		// map of origin of requests to files they are requesting
+		RequestOriginToFileAndIndex: make(map[string][]FileAndIndex),
+		// map of origin of files to files I am requesting
+		RequestDestinationToFileAndIndex: make(map[string][]FileAndIndex),
 	}
 }
 
 func printStatusReceived(gossiper *Gossiper, peerStatus []PeerStatus, peerAddress string) {
 
-	fmt.Print("STATUS from ", peerAddress, " ") 
+	//fmt.Print("STATUS from ", peerAddress, " ") 
 
 	if(len(peerStatus) == 0) {
 		return
 	}
 
-	for _,ps := range peerStatus {
-		fmt.Print("peer ", ps.Identifier, " nextID ", ps.NextID, " ")
-	}
-	fmt.Println()
+	// JUST FOR TEST PURPOSES TESTING
+	//for _,ps := range peerStatus {
+		//fmt.Print("peer ", ps.Identifier, " nextID ", ps.NextID, " ")
+	//}
+	//fmt.Println()
 }
 
 func getAddressFromRoutingTable(gossiper *Gossiper, dest string) string {

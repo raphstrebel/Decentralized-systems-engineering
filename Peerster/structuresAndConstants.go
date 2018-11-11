@@ -7,6 +7,8 @@ import(
 )
 
 const CHUNK_SIZE = 1024*8
+const UDP_PACKET_SIZE = 10000
+const HASH_SIZE = 32
 
 type ClientPacket struct {
     Message *NormalMessage
@@ -107,11 +109,17 @@ type Gossiper struct {
 	RoutingTable map[string]string
 	IndexedFiles map[string]File
 	SafeDataRequestTimers SafeTimer
-	nodeToFilesDownloaded map[string][]FileAndIndex
+	// origin of file request to File and index requested
+	//NodeToFilesDownloaded map[string][]FileAndIndex
+	RequestOriginToFileAndIndex map[string][]FileAndIndex
+	RequestDestinationToFileAndIndex map[string][]FileAndIndex
+	//NextChunkIndexOfFile map[string]int
+	//FilesBeingDowloaded []File
 }
 
 type FileAndIndex struct {
 	Metahash string
+	Metafile string
 	NextIndex int
 }
 
@@ -137,6 +145,6 @@ type Chunk struct {
 type File struct {
     Name string
     Size int
-    Metafile []byte
-    Metahash []byte
+    Metafile string
+    Metahash string
 }

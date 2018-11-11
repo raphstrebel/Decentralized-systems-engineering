@@ -8,13 +8,14 @@ import(
 	"mux"
     "handlers"
     "net/http"
+    "bytes"
 )
 
 func listenUIPort(gossiper *Gossiper) {
 
 	defer gossiper.UIPortConn.Close()
  	
-    packetBytes := make([]byte, 1024)
+    packetBytes := make([]byte, UDP_PACKET_SIZE)
  
     for true {
 
@@ -28,7 +29,7 @@ func listenUIPort(gossiper *Gossiper) {
 
 	        msg := receivedPkt.Message.Text
 
-	        fmt.Println("CLIENT MESSAGE", msg) 
+	        //fmt.Println("CLIENT MESSAGE", msg) 
 	        //fmt.Println("PEERS", gossiper.Peers_as_single_string)
 
         	rumorMessage := RumorMessage{
@@ -70,34 +71,52 @@ func listenUIPort(gossiper *Gossiper) {
 			file := computeFileIndices(filename)
 
 			// add to map of indexed files
-			metahash_hex := bytesToHex(file.Metahash)
+			metahash_hex := file.Metahash
 			gossiper.IndexedFiles[metahash_hex] = file
-			fmt.Println("Got a file :", metahash_hex)
 
+			fmt.Println("Metahash of file indexed is :", metahash_hex)
+			
 		} else if(receivedPkt.Request != nil) {
-
 			request_metahash := receivedPkt.Request.Request
+			dest := receivedPkt.Request.Destination
+			filename := receivedPkt.Request.FileName
 
-			// TODELETE, TOCHANGE, JUST FOR TESTING PURPOSE --------------------------------------------------
-
-			//address := getAddressFromRoutingTable(gossiper, receivedPkt.Request.Destination)
-			address := "127.0.0.1:5001" // TEST
+			address := getAddressFromRoutingTable(gossiper, dest)
+			//address := "127.0.0.1:5001" // TEST
 			_, isIndexed := gossiper.IndexedFiles[request_metahash]
 
 			// Not already downloaded and we know the address
-			//if(!isIndexed && address != "") {
-			if(!isIndexed) { // TEST
+			if(!isIndexed && address != "") {
+
+				gossiper.IndexedFiles[request_metahash] = File{
+				    Name: filename,
+				    Metafile : "",
+				    Metahash: request_metahash,
+				}
+
 				dataRequest := DataRequest {
 					Origin : gossiper.Name,
-					Destination : receivedPkt.Request.Destination,
+					Destination : dest,
 					HopLimit : 10,
 					HashValue : hexToBytes(request_metahash),
 				}
 
-				fmt.Println("Got a request :", dataRequest)
+				requestedArray, alreadyRequesting := gossiper.RequestDestinationToFileAndIndex[dest]
+
+				if(!alreadyRequesting) {
+					gossiper.RequestDestinationToFileAndIndex[dest] = []FileAndIndex{}
+				}
+
+				gossiper.RequestDestinationToFileAndIndex[dest] = append(requestedArray, FileAndIndex{
+					Metahash : request_metahash,
+					NextIndex : -1,
+				})
+
+				// Create an empty file with name "filename" in Downloads
+				createEmptyFile(filename)
+
 				sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
-				// to check, should we put destination or address?
-				makeDataRequestTimer(gossiper, receivedPkt.Request.Destination, dataRequest)
+				makeDataRequestTimer(gossiper, dest, dataRequest)
 			}
 		}
     }
@@ -106,7 +125,7 @@ func listenUIPort(gossiper *Gossiper) {
 func listenGossipPort(gossiper *Gossiper) {
 
 	defer gossiper.GossipPortConn.Close()
-	packetBytes := make([]byte, 1024)
+	packetBytes := make([]byte, UDP_PACKET_SIZE)
 	var tableUpdated bool
 	var stateID string
 
@@ -176,7 +195,7 @@ func listenGossipPort(gossiper *Gossiper) {
 			peerStatus :=  receivedPkt.Status.Want
 
 			printStatusReceived(gossiper, peerStatus, peerAddr)
-			fmt.Println("PEERS", gossiper.Peers_as_single_string)
+			//fmt.Println("PEERS", gossiper.Peers_as_single_string)
 
 			rumorToSend, statusToSend := compareStatus(gossiper, peerStatus, peerAddr)
 
@@ -190,7 +209,7 @@ func listenGossipPort(gossiper *Gossiper) {
 				sendStatusMsgToSpecificPeer(gossiper, peerAddr)
 
 			} else {
-				fmt.Println("IN SYNC WITH", peerAddr)
+				//fmt.Println("IN SYNC WITH", peerAddr)
 
 				if(rand.Int() % 2 == 0) {
 					// Reading rumor message map ?
@@ -225,64 +244,61 @@ func listenGossipPort(gossiper *Gossiper) {
 				}
 			}
 		} else if(receivedPkt.DataRequest != nil) {
-			origin := receivedPkt.DataRequest.Origin
+			requestOrigin := receivedPkt.DataRequest.Origin
 			dest := receivedPkt.DataRequest.Destination
 			hopLimit := receivedPkt.DataRequest.HopLimit
 			hashValue_bytes := receivedPkt.DataRequest.HashValue
 			hashValue_hex := bytesToHex(hashValue_bytes)
 
-			fmt.Println("Received request : ", origin, dest, hashValue_bytes) // todelete
-
 			if(dest == gossiper.Name) {
-				fmt.Println("It's me !")
 				
-				// TODELETE JUST FOR TESTING PURPOSE ----------------------------------------------
-				address := "127.0.0.1:5000"
-				//address := getAddressFromRoutingTable(gossiper, origin)
+				address := getAddressFromRoutingTable(gossiper, requestOrigin)
 
 				if(address != "") {
 					file, isMetaHash := gossiper.IndexedFiles[hashValue_hex]
-					// check if hashValue is a metafile, if yes send the first chunk
+					
+					// check if hashValue is a metahash, if yes send the metafile
 					if(isMetaHash) {
 						metahash_hex := hashValue_hex
 
-						// add to map nodeToFilesDownloaded
-						_, isDownloading := gossiper.nodeToFilesDownloaded[origin]
+						// add to map RequestOriginToFileAndIndex
+						filesBeingDownloaded, isDownloading := gossiper.RequestOriginToFileAndIndex[requestOrigin]
 						
 						if(!isDownloading) {
-							gossiper.nodeToFilesDownloaded[origin] = []FileAndIndex{}
+							gossiper.RequestOriginToFileAndIndex[requestOrigin] = []FileAndIndex{}
 						}
 
-						gossiper.nodeToFilesDownloaded[origin] = append(gossiper.nodeToFilesDownloaded[origin], FileAndIndex{
+						gossiper.RequestOriginToFileAndIndex[requestOrigin] = append(filesBeingDownloaded, FileAndIndex{
 							Metahash : metahash_hex,
 							NextIndex : 0,
 						})
 
 						dataReply := DataReply{
 							Origin : gossiper.Name,
-							Destination : origin,
+							Destination : requestOrigin,
 							HopLimit : 10,
-							HashValue : file.Metafile[0:32], // hash of first chunk
-							Data : getChunkByIndex(file.Name, 0).ByteArray, // get first chunk
+							HashValue : hexToBytes(file.Metahash),
+							Data : hexToBytes(file.Metafile),
 						}
-						fmt.Println("Sending response :", dataReply, " to :", address)
-						fmt.Println("nodes to files : ", gossiper.nodeToFilesDownloaded)
+
 						sendDataReplyToSpecificPeer(gossiper, dataReply, address)
 
 					} else {
-						// Check if we are already transmitting a file to the origin of the message
-						//filesBeingDownloaded := []string{gossiper.nodeToFilesDownloaded[origin]}
-						filesBeingDownloaded, isDownloading := gossiper.nodeToFilesDownloaded[origin]
+						// Check if we are already transmitting a file to the origin of the message, if not do nothing
+
+						filesBeingDownloaded, isDownloading := gossiper.RequestOriginToFileAndIndex[requestOrigin]
 						nextChunkHash := hashValue_hex
 						
 						if(isDownloading) {
-							chunkToSend := checkFilesForHash(gossiper, filesBeingDownloaded, origin, nextChunkHash)
+
+							chunkToSend := checkFilesForNextChunk(gossiper, filesBeingDownloaded, requestOrigin, nextChunkHash)
+
 							dataReply := DataReply{
 								Origin : gossiper.Name,
-								Destination : origin,
+								Destination : requestOrigin,
 								HopLimit : 10,
-								HashValue : hashValue_bytes, // hash of first chunk
-								Data : chunkToSend.ByteArray, // get first chunk
+								HashValue : hashValue_bytes, // hash of i'th chunk
+								Data : chunkToSend, // get i'th chunk
 							}
 
 							sendDataReplyToSpecificPeer(gossiper, dataReply, address)
@@ -295,7 +311,7 @@ func listenGossipPort(gossiper *Gossiper) {
 
             	if(address != "" && hopLimit != 0) {
             		dataRequest := DataRequest {
-						Origin : origin,
+						Origin : requestOrigin,
 						Destination : dest,
 						HopLimit : hopLimit - 1,
 						HashValue : hashValue_bytes,
@@ -306,20 +322,140 @@ func listenGossipPort(gossiper *Gossiper) {
 			}
 
 		} else if(receivedPkt.DataReply != nil) {
-			// check if we are expecting a reply from "origin" and cancel timer 
-			origin := receivedPkt.DataReply.Origin
 
-			address := gossiper.RoutingTable[origin]
+			fileOrigin := receivedPkt.DataReply.Origin
+			dest := receivedPkt.DataReply.Destination
+			hashValue := receivedPkt.DataReply.HashValue
+			hopLimit := receivedPkt.DataReply.HopLimit
+			data := receivedPkt.DataReply.Data
 
-			if(address != "")
-			isReponse := isDataResponse(gossiper, origin)
+
+			if(dest == gossiper.Name) {
+
+				// check if we are expecting a reply from "fileOrigin" and cancel timer 
+				isResponse := isDataResponse(gossiper, fileOrigin)
 	    	
-	    	if(isResponse) {
-	    		removeFinishedDataRequestTimer(gossiper, peerAddr)
-	    	}
+		    	if(isResponse) {
+		    		removeFinishedDataRequestTimer(gossiper, fileOrigin)
+		    	}
 
-	    	// check that hashValue is hash of data
+		    	// TODO : moodle forum : check if hashvalue is metadata and data is [] -> cancel timer and do nothing
 
+		    	// check that hashValue is hash of data and we are expecting a response
+		    	hash := computeHash(data)
+
+		    	if(bytes.Equal(hash, hashValue) && isResponse) {
+
+		    		indexOfFile, isMetafile, nextChunkHash, isLastChunk := getNextChunkHashToRequest(gossiper, fileOrigin, bytesToHex(hashValue))
+
+		    		if(indexOfFile >= 0) {
+		    			
+		    			address := getAddressFromRoutingTable(gossiper, fileOrigin)
+
+		    			if(isMetafile) {
+
+		    				metahash := hashValue
+				    		metahash_hex := bytesToHex(metahash)
+				    		metafile := receivedPkt.DataReply.Data
+				    		metafile_hex := bytesToHex(metafile)
+
+		    				// get the next chunk hash in the metafile
+			    			fileSize := int(len(metafile_hex)/(2*HASH_SIZE))
+
+			    			if(len(metafile_hex) % 64 == 0) {
+			    				// add fileOrigin and file to RequestDestinationToFileAndIndex
+				    			gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex = 0
+				    			gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash = metahash_hex
+				    			gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metafile = metafile_hex
+
+				    			f := gossiper.IndexedFiles[metahash_hex]
+				    			f.Metafile = bytesToHex(metafile)
+				    			f.Size = fileSize * CHUNK_SIZE // at most
+				    			gossiper.IndexedFiles[metahash_hex] = f
+
+				    			// Request first chunk
+				    			firstChunk := metafile[0:HASH_SIZE]
+
+				    			dataRequest := DataRequest {
+									Origin : gossiper.Name,
+									Destination : fileOrigin,
+									HopLimit : 10,
+									HashValue : firstChunk,
+								}
+								
+								fmt.Println("Sending request")
+								sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
+								makeDataRequestTimer(gossiper, fileOrigin, dataRequest)
+
+								//fmt.Println("4. Now we have the metafile: ", gossiper.RequestDestinationToFileAndIndex[fileOrigin])
+			    			} else {
+			    				fmt.Println("Wrong metafile (not of chunks of size CHUNK_SIZE) : ", metafile_hex)
+			    			}
+						} else if(isLastChunk) {
+							fmt.Println("It is the last chunk")
+
+							// Save the data received to the file name :
+							metahash_hex := gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash
+							f := gossiper.IndexedFiles[metahash_hex]
+							writeChunkToFile(f.Name, data)
+
+							hashValue_hex := bytesToHex(hashValue)
+
+							// check if the hash of metafile is metahash
+							if(hashValue_hex == f.Metafile[len(f.Metafile)-2*HASH_SIZE:len(f.Metafile)]) {
+								fmt.Println("DOWNLOAD COMPLETE")
+								// copy the file to _Downloads
+								copyFileToDownloads(f.Name)
+								// erase the file from RequestDestinationToFileAndIndex[fileOrigin]
+
+							} 
+
+						} else {
+							fmt.Println("Got a non metahash: ", nextChunkHash)
+
+							// Save the data received to the file name :
+							metahash_hex := gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash
+							f := gossiper.IndexedFiles[metahash_hex]
+							writeChunkToFile(f.Name, data)
+
+							gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex++
+							
+							// Send request for next chunk
+							dataRequest := DataRequest {
+								Origin : gossiper.Name,
+								Destination : fileOrigin,
+								HopLimit : 10,
+								HashValue : hexToBytes(nextChunkHash),
+							}
+								
+							fmt.Println("Sending next request")
+							sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
+							makeDataRequestTimer(gossiper, fileOrigin, dataRequest)
+
+						}
+
+		    		} else {
+		    			fmt.Println("ERROR : CHUNK OF FILE NOT FOUND")
+		    		}
+		    	} else {
+		    		fmt.Println("Error : hash of data is not hashValue of dataReply", receivedPkt.DataReply.HashValue, " != ", 
+		    			hash, " or we do not expect response ? ", !isResponse)
+		    	}
+			} else {
+				// Send to next in routing table 
+				address := getAddressFromRoutingTable(gossiper, dest)
+
+            	if(address != "" && hopLimit != 0) {
+            		dataReply := DataReply {
+						Origin : fileOrigin,
+						Destination : dest,
+						HopLimit : hopLimit - 1,
+						HashValue : hashValue,
+					}
+
+					sendDataReplyToSpecificPeer(gossiper, dataReply, address)
+				}
+			}
 		}  
     }
 }
@@ -371,6 +507,9 @@ func main() {
 		r.HandleFunc("/fileSharing", func(w http.ResponseWriter, r *http.Request) {
 		    FileSharingHandler(gossiper, w, r)
 		})
+		r.HandleFunc("/fileSharing", func(w http.ResponseWriter, r *http.Request) {
+		    FileSharingHandler(gossiper, w, r)
+		})
 
 	    http.ListenAndServe(":8080", handlers.CORS()(r))
 	}
@@ -378,5 +517,9 @@ func main() {
 	// for routing messages : map of [ip] -> (origin, lastID)
 	// rumor messages to send to frontend should be a stack
 	// frontend should send number of messages it has (id of last received) so that when restarting frontend you have them all
+	// should lock routingTable before writing in it
+	// see https://moodle.epfl.ch/mod/forum/discuss.php?d=11412
+	// IMPORTANT : HANDLE METHODS FOR FRONTEND 
+	// lock all maps
 
 }

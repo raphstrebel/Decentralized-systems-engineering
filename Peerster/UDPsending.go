@@ -3,15 +3,16 @@ package main
 import(
 	"protobuf"
 	"net"
-	"fmt"
+	//"fmt"
 	"time"
 	"math/rand"
 )
 
 func sendPacketToSpecificPeer(gossiper *Gossiper, packet GossipPacket, address string) {
+	//fmt.Println("Sending : ", packet.DataReply)
 	packetBytes, err := protobuf.Encode(&packet)
 	isError(err)
-		 	
+
 	// Start UDP connection
 	peerAddr, err := net.ResolveUDPAddr("udp4", address)
 	isError(err)
@@ -21,7 +22,7 @@ func sendPacketToSpecificPeer(gossiper *Gossiper, packet GossipPacket, address s
 }
 
 func sendRumorMsgToSpecificPeer(gossiper *Gossiper, rumorMessage RumorMessage, address string) {
-	fmt.Println("MONGERING with", address)
+	//fmt.Println("MONGERING with", address)
 
 	// Encode message
 	packet := GossipPacket{Rumor: &rumorMessage}
@@ -107,7 +108,7 @@ func rumormongering(gossiper *Gossiper, rumorMessage RumorMessage, isRandom bool
     luckyPeer := gossiper.Peers[rand.Intn(len(gossiper.Peers))]
 
     if(isRandom) {
-    	fmt.Println("FLIPPED COIN sending rumor to", luckyPeer)
+    	//fmt.Println("FLIPPED COIN sending rumor to", luckyPeer)
     }
 
 	sendRumorMsgToSpecificPeer(gossiper, rumorMessage, luckyPeer)

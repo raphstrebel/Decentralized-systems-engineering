@@ -139,6 +139,23 @@ function sendPrivateMessage() {
 	});
 }	
 
+// Get a file of a close node by entering hexa metahash
+function sendNodeFileRequest() {
+	const metahash = document.getElementById("hexaMetahashID");
+	const fileName = document.getElementById("fileNameID");
+
+	if(metahash.value != "" && fileName.value != "") {
+		// Send filepath to server :	
+		$.ajax({
+		  type: "POST",
+		  url: SERVER_ADDRESS + '/fileSharing', 
+		  data: {FileName: fileName.value, Destination: privateNode, Metahash: metahash.value},
+		  dataType: 'jsonp'
+		});
+
+	}	
+}
+
 // Prints the list of messages in initial array
 function showMessages() {
 	// Create a paragraph (line) for each message
@@ -264,13 +281,13 @@ window.onload = function() {
 	showMessages();
 	showAllNodes();
 
-	/* Periodic 1sec get
+	// Periodic 1sec get
     setInterval(function(){ 
 		getNewMessages();
 		getNewNodes(); 
 		getNewCloseNodes();
 		getNewPrivateMessages();
-	}, 1000);*/
+	}, 1000);
 };
 
 

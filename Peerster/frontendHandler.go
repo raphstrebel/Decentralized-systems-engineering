@@ -258,5 +258,15 @@ func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Reque
         filename := r.FormValue("FileName")
         file := computeFileIndices(filename)
         fmt.Println("GOT A FILE  !!!!!!!!!", file)
-    }   
+    } else {
+    	filename := r.FormValue("FileName")
+    	dest := r.FormValue("Destination")
+    	metahash := r.FormValue("Metahash")
+
+    	if(filename != "" && dest != "" && metahash != "") {
+    		fmt.Println("got a file :", filename, metahash, dest)
+    	} else {
+    		fmt.Println("ERROR : ---------------------------------------------------------------- got a file", filename, metahash, dest)
+    	}
+    }  
 }
