@@ -257,16 +257,60 @@ func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Reque
 	if(r.FormValue("Update") != "") {
         filename := r.FormValue("FileName")
         file := computeFileIndices(filename)
-        fmt.Println("GOT A FILE  !!!!!!!!!", file)
+
+        if(file.Size <= MAX_FILE_SIZE) {
+			// add to map of indexed files
+			metahash_hex := file.Metahash
+			gossiper.IndexedFiles[metahash_hex] = file
+
+			fmt.Println("Metahash of file indexed is :", metahash_hex)
+		} else {
+			fmt.Println("Error : file too big :", file.Size)
+		}
+
     } else {
     	filename := r.FormValue("FileName")
     	dest := r.FormValue("Destination")
     	metahash := r.FormValue("Metahash")
 
-    	if(filename != "" && dest != "" && metahash != "") {
-    		fmt.Println("got a file :", filename, metahash, dest)
-    	} else {
-    		fmt.Println("ERROR : ---------------------------------------------------------------- got a file", filename, metahash, dest)
-    	}
+		address := getAddressFromRoutingTable(gossiper, dest)
+
+		_, isIndexed := gossiper.IndexedFiles[metahash]
+
+		// Not already downloaded and we know the address
+		if(!isIndexed && address != "" && filename != "" && dest != "" && metahash != "" ) {
+
+			gossiper.IndexedFiles[metahash] = File{
+			    Name: filename,
+			    Metafile : "",
+			    Metahash: metahash,
+			}
+
+			dataRequest := DataRequest {
+				Origin : gossiper.Name,
+				Destination : dest,
+				HopLimit : 10,
+				HashValue : hexToBytes(metahash),
+			}
+
+			requestedArray, alreadyRequesting := gossiper.RequestDestinationToFileAndIndex[dest]
+
+			if(!alreadyRequesting) {
+				gossiper.RequestDestinationToFileAndIndex[dest] = []FileAndIndex{}
+			}
+
+			gossiper.RequestDestinationToFileAndIndex[dest] = append(requestedArray, FileAndIndex{
+				Metahash : metahash,
+				NextIndex : -1,
+			})
+
+			// Create an empty file with name "filename" in Downloads
+			createEmptyFile(filename)
+
+			sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
+			makeDataRequestTimer(gossiper, dest, dataRequest)
+		} else {
+			fmt.Println("ERROR : one of the fields is nil :", filename, metahash, dest, address, " or file already indexed ?", isIndexed)
+		}
     }  
 }

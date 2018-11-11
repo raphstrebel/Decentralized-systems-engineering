@@ -70,19 +70,22 @@ func listenUIPort(gossiper *Gossiper) {
 			filename := receivedPkt.File.FileName
 			file := computeFileIndices(filename)
 
-			// add to map of indexed files
-			metahash_hex := file.Metahash
-			gossiper.IndexedFiles[metahash_hex] = file
+			if(file.Size <= MAX_FILE_SIZE) {
+				// add to map of indexed files
+				metahash_hex := file.Metahash
+				gossiper.IndexedFiles[metahash_hex] = file
 
-			fmt.Println("Metahash of file indexed is :", metahash_hex)
-			
+				fmt.Println("Metahash of file indexed is :", metahash_hex)
+			} else {
+				fmt.Println("Error : file too big :", file.Size)
+			}
 		} else if(receivedPkt.Request != nil) {
 			request_metahash := receivedPkt.Request.Request
 			dest := receivedPkt.Request.Destination
 			filename := receivedPkt.Request.FileName
 
 			address := getAddressFromRoutingTable(gossiper, dest)
-			//address := "127.0.0.1:5001" // TEST
+
 			_, isIndexed := gossiper.IndexedFiles[request_metahash]
 
 			// Not already downloaded and we know the address
@@ -291,14 +294,26 @@ func listenGossipPort(gossiper *Gossiper) {
 						
 						if(isDownloading) {
 
-							chunkToSend := checkFilesForNextChunk(gossiper, filesBeingDownloaded, requestOrigin, nextChunkHash)
+							chunkToSend, fileIsIndexed := checkFilesForNextChunk(gossiper, filesBeingDownloaded, requestOrigin, nextChunkHash)
+							var dataReply DataReply
 
-							dataReply := DataReply{
-								Origin : gossiper.Name,
-								Destination : requestOrigin,
-								HopLimit : 10,
-								HashValue : hashValue_bytes, // hash of i'th chunk
-								Data : chunkToSend, // get i'th chunk
+							if(fileIsIndexed) {
+								dataReply = DataReply{
+									Origin : gossiper.Name,
+									Destination : requestOrigin,
+									HopLimit : 10,
+									HashValue : hashValue_bytes, // hash of i'th chunk
+									Data : chunkToSend, // get i'th chunk
+								}
+							} else {
+								fmt.Println("NOT INDEXED ")
+								dataReply = DataReply{
+									Origin : gossiper.Name,
+									Destination : requestOrigin,
+									HopLimit : 10,
+									HashValue : hashValue_bytes, 
+									Data : []byte{}, // send empty data to show that we do not posses the file 
+								}
 							}
 
 							sendDataReplyToSpecificPeer(gossiper, dataReply, address)
@@ -344,7 +359,7 @@ func listenGossipPort(gossiper *Gossiper) {
 		    	// check that hashValue is hash of data and we are expecting a response
 		    	hash := computeHash(data)
 
-		    	if(bytes.Equal(hash, hashValue) && isResponse) {
+		    	if((bytes.Equal(hash, hashValue) && isResponse) && len(receivedPkt.DataReply.Data) != 0) {
 
 		    		indexOfFile, isMetafile, nextChunkHash, isLastChunk := getNextChunkHashToRequest(gossiper, fileOrigin, bytesToHex(hashValue))
 
@@ -359,9 +374,6 @@ func listenGossipPort(gossiper *Gossiper) {
 				    		metafile := receivedPkt.DataReply.Data
 				    		metafile_hex := bytesToHex(metafile)
 
-		    				// get the next chunk hash in the metafile
-			    			fileSize := int(len(metafile_hex)/(2*HASH_SIZE))
-
 			    			if(len(metafile_hex) % 64 == 0) {
 			    				// add fileOrigin and file to RequestDestinationToFileAndIndex
 				    			gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex = 0
@@ -370,7 +382,6 @@ func listenGossipPort(gossiper *Gossiper) {
 
 				    			f := gossiper.IndexedFiles[metahash_hex]
 				    			f.Metafile = bytesToHex(metafile)
-				    			f.Size = fileSize * CHUNK_SIZE // at most
 				    			gossiper.IndexedFiles[metahash_hex] = f
 
 				    			// Request first chunk
@@ -484,7 +495,7 @@ func main() {
 		}
 
 		go listenUIPort(gossiper)
-		listenGossipPort(gossiper)
+		go listenGossipPort(gossiper)
 		//antiEntropy(gossiper)
 
 		r := mux.NewRouter()
@@ -514,12 +525,13 @@ func main() {
 	    http.ListenAndServe(":8080", handlers.CORS()(r))
 	}
 
-	// for routing messages : map of [ip] -> (origin, lastID)
-	// rumor messages to send to frontend should be a stack
-	// frontend should send number of messages it has (id of last received) so that when restarting frontend you have them all
-	// should lock routingTable before writing in it
-	// see https://moodle.epfl.ch/mod/forum/discuss.php?d=11412
-	// IMPORTANT : HANDLE METHODS FOR FRONTEND 
-	// lock all maps
+	/* LIST OF THINGS TO DO IN ORDER OF PRIORITY :
+
+	2. Lock all maps 
+	3. Test thoroughly with multiple gossipers and Thierry and Alex
+	4. frontend should send number of messages it has (id of last received) so that when restarting frontend you have them all
+	5. for routing messages : map of [ip] -> (origin, lastID)
+
+	*/
 
 }

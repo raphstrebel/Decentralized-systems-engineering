@@ -9,6 +9,7 @@ import(
 const CHUNK_SIZE = 1024*8
 const UDP_PACKET_SIZE = 10000
 const HASH_SIZE = 32
+const MAX_FILE_SIZE = 1024*8*256 // 2MB
 
 type ClientPacket struct {
     Message *NormalMessage
