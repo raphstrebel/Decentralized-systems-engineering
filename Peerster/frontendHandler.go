@@ -205,8 +205,10 @@ func CloseNodeHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request
 
 	    // LOCK ROUTING TABLE MAP ?
 
+        gossiper.SafeRoutingTables.mux.Lock()
+	    close_nodes := reflect.ValueOf(gossiper.SafeRoutingTables.RoutingTable).MapKeys()
+	    gossiper.SafeRoutingTables.mux.Unlock()
 
-	    close_nodes := reflect.ValueOf(gossiper.RoutingTable).MapKeys()
 	    nb_close_nodes := len(close_nodes)
 	    nb_close_nodes_sent := len(gossiper.SentCloseNodes)
 
@@ -261,7 +263,9 @@ func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Reque
         if(file.Size <= MAX_FILE_SIZE) {
 			// add to map of indexed files
 			metahash_hex := file.Metahash
-			gossiper.IndexedFiles[metahash_hex] = file
+			gossiper.SafeIndexedFiles.mux.Lock()
+			gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = file
+			gossiper.SafeIndexedFiles.mux.Unlock()
 
 			fmt.Println("Metahash of file indexed is :", metahash_hex)
 		} else {
@@ -275,16 +279,20 @@ func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Reque
 
 		address := getAddressFromRoutingTable(gossiper, dest)
 
-		_, isIndexed := gossiper.IndexedFiles[metahash]
+		gossiper.SafeIndexedFiles.mux.Lock()
+		_, isIndexed := gossiper.SafeIndexedFiles.IndexedFiles[metahash]
+		gossiper.SafeIndexedFiles.mux.Unlock()
 
 		// Not already downloaded and we know the address
 		if(!isIndexed && address != "" && filename != "" && dest != "" && metahash != "" ) {
 
-			gossiper.IndexedFiles[metahash] = File{
+			gossiper.SafeIndexedFiles.mux.Lock()
+			gossiper.SafeIndexedFiles.IndexedFiles[metahash] = File{
 			    Name: filename,
 			    Metafile : "",
 			    Metahash: metahash,
 			}
+			gossiper.SafeIndexedFiles.mux.Unlock()
 
 			dataRequest := DataRequest {
 				Origin : gossiper.Name,
@@ -293,16 +301,18 @@ func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Reque
 				HashValue : hexToBytes(metahash),
 			}
 
-			requestedArray, alreadyRequesting := gossiper.RequestDestinationToFileAndIndex[dest]
+			gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
+			requestedArray, alreadyRequesting := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[dest]
 
 			if(!alreadyRequesting) {
-				gossiper.RequestDestinationToFileAndIndex[dest] = []FileAndIndex{}
+				gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[dest] = []FileAndIndex{}
 			}
 
-			gossiper.RequestDestinationToFileAndIndex[dest] = append(requestedArray, FileAndIndex{
+			gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[dest] = append(requestedArray, FileAndIndex{
 				Metahash : metahash,
 				NextIndex : -1,
 			})
+			gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
 
 			// Create an empty file with name "filename" in Downloads
 			createEmptyFile(filename)

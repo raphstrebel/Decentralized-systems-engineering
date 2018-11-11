@@ -25,19 +25,6 @@ func contains(array []string, s string) bool {
 	return false
 }
 
-/*func addMetaFileToFileAndIndex(gossiper *Gossiper, origin string, metahash string, metafile string) {
-
-	for i, fileAndIndex := range gossiper.NodeToFilesDownloaded[origin] {
-		if(fileAndIndex.Metahash == metahash) {
-			gossiper.NodeToFilesDownloaded[origin][i].Metafile = metafile
-			gossiper.NodeToFilesDownloaded[origin][i].NextIndex = 0
-			return true
-		}
-	}
-
-	return false
-}*/
-
 func getIndexOfFileAndIndex(array []FileAndIndex, metahash string) int {
 	for i, elem := range array {
 		if metahash == elem.Metahash {
@@ -282,7 +269,7 @@ func makeTimer(gossiper *Gossiper, peerAddress string, rumorMessage RumorMessage
 	}()
 }
 
-// This function makes a new timer and sets the timeout to ONE second. If the timer finishes it calls the method to remove the timer.
+// This function makes a new timer and sets the timeout to 5 seconds. If the timer finishes it calls the method to remove the timer.
 func makeDataRequestTimer(gossiper *Gossiper, fileOrigin string, dataRequest DataRequest) {
 
 	dataRespTimer := ResponseTimer{
@@ -307,7 +294,7 @@ func makeDataRequestTimer(gossiper *Gossiper, fileOrigin string, dataRequest Dat
 
 		// Send the request again
 		//fmt.Println("TIMEOUT!")
-	    sendDataRequestToSpecificPeer(gossiper, dataRequest, gossiper.RoutingTable[fileOrigin])
+	    sendDataRequestToSpecificPeer(gossiper, dataRequest, getAddressFromRoutingTable(gossiper, fileOrigin))//gossiper.RoutingTable[fileOrigin])
 	    makeDataRequestTimer(gossiper, fileOrigin, dataRequest)	
 	}()
 }
@@ -318,6 +305,7 @@ func removeFinishedTimer(gossiper *Gossiper, peerAddress string) {
 	gossiper.SafeTimers.mux.Lock()
 
 	if(len(gossiper.SafeTimers.ResponseTimers[peerAddress]) == 0) {
+		gossiper.SafeTimers.mux.Unlock()
 		return
 	} else if(len(gossiper.SafeTimers.ResponseTimers[peerAddress]) == 1) {
 		delete(gossiper.SafeTimers.ResponseTimers, peerAddress)
@@ -332,6 +320,7 @@ func removeFinishedDataRequestTimer(gossiper *Gossiper, peerAddress string) {
 	gossiper.SafeDataRequestTimers.mux.Lock()
 
 	if(len(gossiper.SafeDataRequestTimers.ResponseTimers[peerAddress]) == 0) {
+		gossiper.SafeDataRequestTimers.mux.Unlock()
 		return
 	} else if(len(gossiper.SafeDataRequestTimers.ResponseTimers[peerAddress]) == 1) {
 		delete(gossiper.SafeDataRequestTimers.ResponseTimers, peerAddress)
@@ -377,19 +366,27 @@ func isDataResponse(gossiper *Gossiper, fileOrigin string) bool {
 
 // Function to update the routing table of our gossiper
 func updateRoutingTable(gossiper *Gossiper, rumor RumorMessage, address string) bool {
+
+	tableUpdated := false
+
 	if(rumor.Origin == gossiper.Name) {
-		return false
+		return tableUpdated
 	}
 
-	if(len(gossiper.RoutingTable[rumor.Origin]) == 0) { // We do not know a path to this origin
-		gossiper.RoutingTable[rumor.Origin] = address
-		return true
-	} else if(gossiper.RoutingTable[rumor.Origin] != address) { // The address needs to be updated
-		gossiper.RoutingTable[rumor.Origin] = address
-		return true
+	gossiper.SafeRoutingTables.mux.Lock()
+
+	if(len(gossiper.SafeRoutingTables.RoutingTable[rumor.Origin]) == 0) { // We do not know a path to this origin
+		gossiper.SafeRoutingTables.RoutingTable[rumor.Origin] = address
+		tableUpdated = true
+	} else if(gossiper.SafeRoutingTables.RoutingTable[rumor.Origin] != address) { // The address needs to be updated
+		gossiper.SafeRoutingTables.RoutingTable[rumor.Origin] = address
+		tableUpdated = true
 	} else {
-		return false
+		tableUpdated = false
 	}
+
+	gossiper.SafeRoutingTables.mux.Unlock()
+	return tableUpdated
 }    	
 
 // Create a new gossiper
@@ -433,19 +430,27 @@ func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
 		},
 		LastRumorSentIndex: -1,
 		LastPrivateSentIndex: -1,
-		StatusOfGUI: make(map[string]uint32),
+		// to delete ? 
 		LastNodeSentIndex: -1,
 		SentCloseNodes: []string{},
 		NextClientMessageID: 1,
-		RoutingTable: make(map[string]string),
-		IndexedFiles: make(map[string]File),
+		SafeRoutingTables: SafeRoutingTable{
+			RoutingTable: make(map[string]string),
+		},
+		SafeIndexedFiles: SafeIndexedFile{
+			IndexedFiles: make(map[string]File),
+		},
 		SafeDataRequestTimers: SafeTimer{
 			ResponseTimers: make(map[string][]ResponseTimer),
 		},
 		// map of origin of requests to files they are requesting
-		RequestOriginToFileAndIndex: make(map[string][]FileAndIndex),
+		SafeRequestOriginToFileAndIndexes: SafeRequestOriginToFileAndIndex{
+			RequestOriginToFileAndIndex: make(map[string][]FileAndIndex),
+		},
 		// map of origin of files to files I am requesting
-		RequestDestinationToFileAndIndex: make(map[string][]FileAndIndex),
+		SafeRequestDestinationToFileAndIndexes: SafeRequestDestinationToFileAndIndex{
+			RequestDestinationToFileAndIndex: make(map[string][]FileAndIndex),
+		},
 	}
 }
 
@@ -466,10 +471,14 @@ func printStatusReceived(gossiper *Gossiper, peerStatus []PeerStatus, peerAddres
 
 func getAddressFromRoutingTable(gossiper *Gossiper, dest string) string {
 
-	if(len(gossiper.RoutingTable[dest]) == 0) {
-		fmt.Println("Error : No such destination :", dest)
-		return ""
-	}
+	gossiper.SafeRoutingTables.mux.Lock()
 
-	return gossiper.RoutingTable[dest]
+	if(len(gossiper.SafeRoutingTables.RoutingTable[dest]) == 0) {
+		fmt.Println("Error : No such destination :", dest)
+		gossiper.SafeRoutingTables.mux.Unlock()
+		return ""
+	} else {
+		gossiper.SafeRoutingTables.mux.Unlock()
+		return gossiper.SafeRoutingTables.RoutingTable[dest]
+	}
 }

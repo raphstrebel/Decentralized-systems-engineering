@@ -70,16 +70,22 @@ func computeHash(b []byte) []byte {
 func checkFilesForNextChunk(gossiper *Gossiper, filesBeingDownloaded []FileAndIndex, origin string, nextChunkHash string) ([]byte, bool) {
     var chunk []byte
 
+    gossiper.SafeIndexedFiles.mux.Lock()
+
     for i, fileAndIndex := range filesBeingDownloaded {
-        f := gossiper.IndexedFiles[fileAndIndex.Metahash]
+        f := gossiper.SafeIndexedFiles.IndexedFiles[fileAndIndex.Metahash]
         chunk = getChunkByIndex(f.Name, fileAndIndex.NextIndex)
         chunk_hash_hex := bytesToHex(computeHash(chunk))
 
         if(chunk_hash_hex == nextChunkHash) {
-            gossiper.RequestOriginToFileAndIndex[origin][i].NextIndex++
+            gossiper.SafeRequestOriginToFileAndIndexes.mux.Lock()
+            gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[origin][i].NextIndex++
+            gossiper.SafeRequestOriginToFileAndIndexes.mux.Unlock()
+            gossiper.SafeIndexedFiles.mux.Unlock()
             return chunk, true
         }
     }
+    gossiper.SafeIndexedFiles.mux.Unlock()
     return chunk, false
 }
 
@@ -90,7 +96,9 @@ func getNextChunkHashToRequest(gossiper *Gossiper, fileOrigin string, hashValue 
     indexOfFile := -1
     var metahash_hex string
 
-    filesOfOrigin, exists := gossiper.RequestDestinationToFileAndIndex[fileOrigin]
+    gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
+    filesOfOrigin, exists := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin]
+    gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
 
     if(!exists) {
         return -1, false, nextChunkHash, false
@@ -143,26 +151,31 @@ func getNextChunkToRequest(gossiper *Gossiper, fileOrigin string, hashValue []by
     isMetafile := false
     indexOfFile := -1
 
-    _, exists := gossiper.RequestDestinationToFileAndIndex[fileOrigin]
+    gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
+    filesAndIndicesOfOrigin, exists := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin]
+    gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
 
     if(!exists) {
         return -1, false, nextChunk
     }
 
     // First check if we received a metafile
-    for i, fileAndIndex := range gossiper.RequestDestinationToFileAndIndex[fileOrigin] {
+    for i, fileAndIndex := range filesAndIndicesOfOrigin {
         if((fileAndIndex.NextIndex == -1) && bytes.Equal(hashValue, hexToBytes(fileAndIndex.Metahash))) {
             // return first chunk
-            nextChunk = getChunkByIndex(gossiper.IndexedFiles[bytesToHex(hashValue)].Name, 0)
+            gossiper.SafeIndexedFiles.mux.Lock()
+            nextChunk = getChunkByIndex(gossiper.SafeIndexedFiles.IndexedFiles[bytesToHex(hashValue)].Name, 0)
+            gossiper.SafeIndexedFiles.mux.Unlock()
             isMetafile = true
             return i, isMetafile, nextChunk
         }
     }
 
     // Otherwise we received a chunk, must range over all metafiles and see which chunk hash 
-    for i, fileAndIndex := range gossiper.RequestDestinationToFileAndIndex[fileOrigin] {
-        
-        filename := gossiper.IndexedFiles[fileAndIndex.Metahash].Name
+    for i, fileAndIndex := range filesAndIndicesOfOrigin {
+        gossiper.SafeIndexedFiles.mux.Unlock()
+        filename := gossiper.SafeIndexedFiles.IndexedFiles[fileAndIndex.Metahash].Name
+        gossiper.SafeIndexedFiles.mux.Unlock()
 
         currentChunk := getChunkByIndex(filename, fileAndIndex.NextIndex-1)
         currentHash := computeHash(currentChunk)

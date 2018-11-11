@@ -73,7 +73,10 @@ func listenUIPort(gossiper *Gossiper) {
 			if(file.Size <= MAX_FILE_SIZE) {
 				// add to map of indexed files
 				metahash_hex := file.Metahash
-				gossiper.IndexedFiles[metahash_hex] = file
+
+				gossiper.SafeIndexedFiles.mux.Lock()
+				gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = file
+				gossiper.SafeIndexedFiles.mux.Unlock()
 
 				fmt.Println("Metahash of file indexed is :", metahash_hex)
 			} else {
@@ -84,18 +87,24 @@ func listenUIPort(gossiper *Gossiper) {
 			dest := receivedPkt.Request.Destination
 			filename := receivedPkt.Request.FileName
 
+			fmt.Println("Received Request from client for :", request_metahash)
+
 			address := getAddressFromRoutingTable(gossiper, dest)
 
-			_, isIndexed := gossiper.IndexedFiles[request_metahash]
+			gossiper.SafeIndexedFiles.mux.Lock()
+			_, isIndexed := gossiper.SafeIndexedFiles.IndexedFiles[request_metahash]
+			gossiper.SafeIndexedFiles.mux.Unlock()
 
 			// Not already downloaded and we know the address
 			if(!isIndexed && address != "") {
 
-				gossiper.IndexedFiles[request_metahash] = File{
+				gossiper.SafeIndexedFiles.mux.Lock()
+				gossiper.SafeIndexedFiles.IndexedFiles[request_metahash] = File{
 				    Name: filename,
 				    Metafile : "",
 				    Metahash: request_metahash,
 				}
+				gossiper.SafeIndexedFiles.mux.Unlock()
 
 				dataRequest := DataRequest {
 					Origin : gossiper.Name,
@@ -104,19 +113,24 @@ func listenUIPort(gossiper *Gossiper) {
 					HashValue : hexToBytes(request_metahash),
 				}
 
-				requestedArray, alreadyRequesting := gossiper.RequestDestinationToFileAndIndex[dest]
+				gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
+				requestedArray, alreadyRequesting := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[dest]
 
 				if(!alreadyRequesting) {
-					gossiper.RequestDestinationToFileAndIndex[dest] = []FileAndIndex{}
+					gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[dest] = []FileAndIndex{}
 				}
 
-				gossiper.RequestDestinationToFileAndIndex[dest] = append(requestedArray, FileAndIndex{
+				gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[dest] = append(requestedArray, FileAndIndex{
 					Metahash : request_metahash,
 					NextIndex : -1,
 				})
 
+				gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
+
 				// Create an empty file with name "filename" in Downloads
 				createEmptyFile(filename)
+
+				fmt.Println("Sending request to :", address)
 
 				sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
 				makeDataRequestTimer(gossiper, dest, dataRequest)
@@ -258,23 +272,27 @@ func listenGossipPort(gossiper *Gossiper) {
 				address := getAddressFromRoutingTable(gossiper, requestOrigin)
 
 				if(address != "") {
-					file, isMetaHash := gossiper.IndexedFiles[hashValue_hex]
+					gossiper.SafeIndexedFiles.mux.Lock()
+					file, isMetaHash := gossiper.SafeIndexedFiles.IndexedFiles[hashValue_hex]
+					gossiper.SafeIndexedFiles.mux.Unlock()
 					
 					// check if hashValue is a metahash, if yes send the metafile
 					if(isMetaHash) {
 						metahash_hex := hashValue_hex
 
 						// add to map RequestOriginToFileAndIndex
-						filesBeingDownloaded, isDownloading := gossiper.RequestOriginToFileAndIndex[requestOrigin]
+						gossiper.SafeRequestOriginToFileAndIndexes.mux.Lock()
+						filesBeingDownloaded, isDownloading := gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin]
 						
 						if(!isDownloading) {
-							gossiper.RequestOriginToFileAndIndex[requestOrigin] = []FileAndIndex{}
+							gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin] = []FileAndIndex{}
 						}
 
-						gossiper.RequestOriginToFileAndIndex[requestOrigin] = append(filesBeingDownloaded, FileAndIndex{
+						gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin] = append(filesBeingDownloaded, FileAndIndex{
 							Metahash : metahash_hex,
 							NextIndex : 0,
 						})
+						gossiper.SafeRequestOriginToFileAndIndexes.mux.Unlock()
 
 						dataReply := DataReply{
 							Origin : gossiper.Name,
@@ -288,8 +306,9 @@ func listenGossipPort(gossiper *Gossiper) {
 
 					} else {
 						// Check if we are already transmitting a file to the origin of the message, if not do nothing
-
-						filesBeingDownloaded, isDownloading := gossiper.RequestOriginToFileAndIndex[requestOrigin]
+						gossiper.SafeRequestOriginToFileAndIndexes.mux.Lock()
+						filesBeingDownloaded, isDownloading := gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin]
+						gossiper.SafeRequestOriginToFileAndIndexes.mux.Unlock()
 						nextChunkHash := hashValue_hex
 						
 						if(isDownloading) {
@@ -306,7 +325,6 @@ func listenGossipPort(gossiper *Gossiper) {
 									Data : chunkToSend, // get i'th chunk
 								}
 							} else {
-								fmt.Println("NOT INDEXED ")
 								dataReply = DataReply{
 									Origin : gossiper.Name,
 									Destination : requestOrigin,
@@ -354,8 +372,6 @@ func listenGossipPort(gossiper *Gossiper) {
 		    		removeFinishedDataRequestTimer(gossiper, fileOrigin)
 		    	}
 
-		    	// TODO : moodle forum : check if hashvalue is metadata and data is [] -> cancel timer and do nothing
-
 		    	// check that hashValue is hash of data and we are expecting a response
 		    	hash := computeHash(data)
 
@@ -376,13 +392,17 @@ func listenGossipPort(gossiper *Gossiper) {
 
 			    			if(len(metafile_hex) % 64 == 0) {
 			    				// add fileOrigin and file to RequestDestinationToFileAndIndex
-				    			gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex = 0
-				    			gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash = metahash_hex
-				    			gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metafile = metafile_hex
+			    				gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
+				    			gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex = 0
+				    			gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash = metahash_hex
+				    			gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metafile = metafile_hex
+				    			gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
 
-				    			f := gossiper.IndexedFiles[metahash_hex]
+				    			gossiper.SafeIndexedFiles.mux.Lock()
+				    			f := gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex]
 				    			f.Metafile = bytesToHex(metafile)
-				    			gossiper.IndexedFiles[metahash_hex] = f
+				    			gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = f
+				    			gossiper.SafeIndexedFiles.mux.Unlock()
 
 				    			// Request first chunk
 				    			firstChunk := metafile[0:HASH_SIZE]
@@ -394,20 +414,22 @@ func listenGossipPort(gossiper *Gossiper) {
 									HashValue : firstChunk,
 								}
 								
-								fmt.Println("Sending request")
 								sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
 								makeDataRequestTimer(gossiper, fileOrigin, dataRequest)
 
-								//fmt.Println("4. Now we have the metafile: ", gossiper.RequestDestinationToFileAndIndex[fileOrigin])
 			    			} else {
 			    				fmt.Println("Wrong metafile (not of chunks of size CHUNK_SIZE) : ", metafile_hex)
 			    			}
 						} else if(isLastChunk) {
-							fmt.Println("It is the last chunk")
-
 							// Save the data received to the file name :
-							metahash_hex := gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash
-							f := gossiper.IndexedFiles[metahash_hex]
+							gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
+							metahash_hex := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash
+							gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
+
+							gossiper.SafeIndexedFiles.mux.Lock()
+							f := gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex]
+							gossiper.SafeIndexedFiles.mux.Unlock()
+
 							writeChunkToFile(f.Name, data)
 
 							hashValue_hex := bytesToHex(hashValue)
@@ -419,17 +441,21 @@ func listenGossipPort(gossiper *Gossiper) {
 								copyFileToDownloads(f.Name)
 								// erase the file from RequestDestinationToFileAndIndex[fileOrigin]
 
+
 							} 
 
 						} else {
-							fmt.Println("Got a non metahash: ", nextChunkHash)
-
 							// Save the data received to the file name :
-							metahash_hex := gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash
-							f := gossiper.IndexedFiles[metahash_hex]
-							writeChunkToFile(f.Name, data)
+							gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
+							metahash_hex := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash
+							gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex++
+							gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
 
-							gossiper.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex++
+							gossiper.SafeIndexedFiles.mux.Lock()
+							f := gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex]
+							gossiper.SafeIndexedFiles.mux.Unlock()
+
+							writeChunkToFile(f.Name, data)
 							
 							// Send request for next chunk
 							dataRequest := DataRequest {
@@ -439,7 +465,6 @@ func listenGossipPort(gossiper *Gossiper) {
 								HashValue : hexToBytes(nextChunkHash),
 							}
 								
-							fmt.Println("Sending next request")
 							sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
 							makeDataRequestTimer(gossiper, fileOrigin, dataRequest)
 
@@ -449,8 +474,8 @@ func listenGossipPort(gossiper *Gossiper) {
 		    			fmt.Println("ERROR : CHUNK OF FILE NOT FOUND")
 		    		}
 		    	} else {
-		    		fmt.Println("Error : hash of data is not hashValue of dataReply", receivedPkt.DataReply.HashValue, " != ", 
-		    			hash, " or we do not expect response ? ", !isResponse)
+		    		fmt.Println("Error : hash of data is not hashValue of dataReply", hash, " != ", receivedPkt.DataReply.HashValue, 
+		    			" or we do not expect response ? is response = ", isResponse)
 		    	}
 			} else {
 				// Send to next in routing table 
@@ -462,6 +487,7 @@ func listenGossipPort(gossiper *Gossiper) {
 						Destination : dest,
 						HopLimit : hopLimit - 1,
 						HashValue : hashValue,
+						Data : data,
 					}
 
 					sendDataReplyToSpecificPeer(gossiper, dataReply, address)
@@ -495,7 +521,7 @@ func main() {
 		}
 
 		go listenUIPort(gossiper)
-		go listenGossipPort(gossiper)
+		listenGossipPort(gossiper)
 		//antiEntropy(gossiper)
 
 		r := mux.NewRouter()
@@ -526,12 +552,18 @@ func main() {
 	}
 
 	/* LIST OF THINGS TO DO IN ORDER OF PRIORITY :
-
+	1. add DOWNLOADING CHUNK print !!
 	2. Lock all maps 
 	3. Test thoroughly with multiple gossipers and Thierry and Alex
 	4. frontend should send number of messages it has (id of last received) so that when restarting frontend you have them all
 	5. for routing messages : map of [ip] -> (origin, lastID)
 
+	BEFORE SUBMITTING :
+	add all necessary prints
+	remove unnecessary prints
+	add DOWNLOADING CHUNK print
+	
+	Should I erase the node requesting the file when I send him the last reply ? If yes after how much time
 	*/
 
 }

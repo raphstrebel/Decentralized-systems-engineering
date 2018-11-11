@@ -103,25 +103,40 @@ type Gossiper struct {
 	TimersBeingChanged bool
 	LastRumorSentIndex int
 	LastPrivateSentIndex int
-	StatusOfGUI map[string]uint32
 	LastNodeSentIndex int 
 	SentCloseNodes []string
 	NextClientMessageID uint32
-	RoutingTable map[string]string
-	IndexedFiles map[string]File
+	SafeRoutingTables SafeRoutingTable
+	SafeIndexedFiles SafeIndexedFile
 	SafeDataRequestTimers SafeTimer
-	// origin of file request to File and index requested
-	//NodeToFilesDownloaded map[string][]FileAndIndex
-	RequestOriginToFileAndIndex map[string][]FileAndIndex
-	RequestDestinationToFileAndIndex map[string][]FileAndIndex
-	//NextChunkIndexOfFile map[string]int
-	//FilesBeingDowloaded []File
+	SafeRequestOriginToFileAndIndexes SafeRequestOriginToFileAndIndex
+	SafeRequestDestinationToFileAndIndexes SafeRequestDestinationToFileAndIndex
 }
 
 type FileAndIndex struct {
 	Metahash string
 	Metafile string
 	NextIndex int
+}
+
+type SafeRequestDestinationToFileAndIndex struct {
+	RequestDestinationToFileAndIndex map[string][]FileAndIndex
+	mux sync.Mutex
+}
+
+type SafeRequestOriginToFileAndIndex struct {
+	RequestOriginToFileAndIndex map[string][]FileAndIndex
+	mux sync.Mutex
+}
+
+type SafeIndexedFile struct {
+	IndexedFiles map[string]File
+	mux sync.Mutex
+}
+
+type SafeRoutingTable struct {
+	RoutingTable map[string]string
+	mux sync.Mutex
 }
 
 type SafeRumor struct {
