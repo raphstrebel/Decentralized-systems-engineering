@@ -300,7 +300,7 @@ func makeDataRequestTimer(gossiper *Gossiper, fileOrigin string, dataRequest Dat
 		removeFinishedDataRequestTimer(gossiper, fileOrigin)
 
 		// Send the request again
-		//fmt.Println("TIMEOUT!")
+		fmt.Println("TIMEOUT!")
 	    sendDataRequestToSpecificPeer(gossiper, dataRequest, getAddressFromRoutingTable(gossiper, fileOrigin))//gossiper.RoutingTable[fileOrigin])
 	    makeDataRequestTimer(gossiper, fileOrigin, dataRequest)	
 	}()
@@ -470,10 +470,10 @@ func printStatusReceived(gossiper *Gossiper, peerStatus []PeerStatus, peerAddres
 	}
 
 	// JUST FOR TEST PURPOSES TESTING
-	for _,ps := range peerStatus {
+	/*for _,ps := range peerStatus {
 		fmt.Print("peer ", ps.Identifier, " nextID ", ps.NextID, " ")
 	}
-	fmt.Println()
+	fmt.Println()*/
 }
 
 func getAddressFromRoutingTable(gossiper *Gossiper, dest string) string {

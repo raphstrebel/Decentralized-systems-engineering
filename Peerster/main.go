@@ -376,6 +376,8 @@ func listenGossipPort(gossiper *Gossiper) {
 
 		} else if(receivedPkt.DataReply != nil) {
 
+			fmt.Println("RECEIVED DATA REPLY")
+
 			fileOrigin := receivedPkt.DataReply.Origin
 			dest := receivedPkt.DataReply.Destination
 			hashValue := receivedPkt.DataReply.HashValue
@@ -549,8 +551,8 @@ func main() {
 		}
 
 		go listenUIPort(gossiper)
-		listenGossipPort(gossiper)
-		//antiEntropy(gossiper)
+		go listenGossipPort(gossiper)
+		//go antiEntropy(gossiper)
 
 		r := mux.NewRouter()
 
@@ -580,16 +582,11 @@ func main() {
 	}
 
 	/* LIST OF THINGS TO DO IN ORDER OF PRIORITY :
-	3. Test thoroughly with multiple gossipers and Thierry and Alex
 	4. frontend should send number of messages it has (id of last received) so that when restarting frontend you have them all
 	5. for routing messages : map of [ip] -> (origin, lastID)
 	6. Put the frontend request period to 1sec
-
-	BEFORE SUBMITTING :
-	add all necessary prints
-	remove unnecessary prints
-
-	erase the file from RequestDestinationToFileAndIndex[fileOrigin]
+	7. When frontend sends "getID", put all "last sent indices" to 0 again
+	8. erase the file from RequestDestinationToFileAndIndex[fileOrigin]
 	
 	Should I erase the node requesting the file when I send him the last reply ? If yes after how much time
 	*/

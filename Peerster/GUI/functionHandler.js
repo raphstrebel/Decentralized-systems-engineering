@@ -36,7 +36,6 @@ function getNewMessages() {
 			msg_string = JSON.stringify(json);
 			msgs = JSON.parse(msg_string);
 
-			console.log("Requested messages : " + msgs);
 			msgs.Message.map(x => messages.push(x));
 			showMessages();
 	}
@@ -301,7 +300,7 @@ window.onload = function() {
 		getNewNodes(); 
 		getNewCloseNodes();
 		getNewPrivateMessages();
-	}, 3000);
+	}, 1000);
 };
 
 
