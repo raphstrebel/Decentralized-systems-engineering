@@ -11,11 +11,16 @@ const UDP_PACKET_SIZE = 10000
 const HASH_SIZE = 32
 const MAX_FILE_SIZE = 1024*8*256 // 2MB
 
+const MAX_BUDGET = 32
+
+var gossiper *Gossiper
+
 type ClientPacket struct {
     Message *NormalMessage
     Private *PrivateMessage
     File *FileMessage
     Request *FileRequestMessage
+    Search *FileSearchMessage
 }
 
 type NormalMessage struct {
@@ -53,6 +58,11 @@ type FileRequestMessage struct {
     Request string
 }
 
+type FileSearchMessage struct {
+    Keywords string
+    Budget uint64
+}
+
 type PeerStatus struct {
 	Identifier string
 	NextID uint32
@@ -77,6 +87,25 @@ type DataReply struct {
 	Data []byte
 }
 
+type SearchRequest struct {
+	Origin string
+	Budget uint64
+	Keywords []string
+}
+
+type SearchReply struct {
+	Origin string
+	Destination string
+	HopLimit uint32
+	Results []*SearchResult
+}
+
+type SearchResult struct {
+	FileName string
+	MetafileHash []byte
+	ChunkMap []uint64
+}
+
 type GossipPacket struct {
 	Simple *SimpleMessage
 	Rumor *RumorMessage
@@ -84,6 +113,8 @@ type GossipPacket struct {
 	Private *PrivateMessage
 	DataRequest *DataRequest
 	DataReply *DataReply
+	SearchRequest *SearchRequest
+	SearchReply *SearchReply
 }
 
 type Gossiper struct {
@@ -105,18 +136,31 @@ type Gossiper struct {
 	LastPrivateSentIndex int
 	LastNodeSentIndex int 
 	SentCloseNodes []string
-	NextClientMessageID uint32
+	SafeNextClientMessageIDs SafeNextClientMessageID
 	SafeRoutingTables SafeRoutingTable
 	SafeIndexedFiles SafeIndexedFile
 	SafeDataRequestTimers SafeTimer
 	SafeRequestOriginToFileAndIndexes SafeRequestOriginToFileAndIndex
 	SafeRequestDestinationToFileAndIndexes SafeRequestDestinationToFileAndIndex
+	// map : "keywords" -> number of matches
+	SafeMySearchRequests SafeMySearchRequest
+}
+
+type SafeMySearchRequest struct {
+	SearchRequests map[string]int
+	mux sync.Mutex
+}
+
+type SafeNextClientMessageID struct {
+	NextClientMessageID uint32
+	mux sync.Mutex
 }
 
 type FileAndIndex struct {
 	Metahash string
 	Metafile string
 	NextIndex int
+	Done bool
 }
 
 type SafeRequestDestinationToFileAndIndex struct {
@@ -154,7 +198,6 @@ type ResponseTimer struct {
 	Responder string 
 }
 
-// to delete ?
 type Chunk struct {
     ByteArray []byte
 }

@@ -3,16 +3,26 @@ package main
 import(
 	"fmt"
 	"math/rand"
+	"math"
 	"simplejson"
     "net/http"
     "regexp"
     "reflect"
+    "strings"
+    "strconv"
+    "time"
 )
 
 // Send ID to frontend
-func IDHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
+func IDHandler(w http.ResponseWriter, r *http.Request) {
     json := simplejson.New()
 	json.Set("ID", gossiper.Name)
+
+	gossiper.LastRumorSentIndex = -1
+	gossiper.LastPrivateSentIndex = -1
+	gossiper.LastNodeSentIndex = -1
+	gossiper.SentCloseNodes = []string{}
+
 
 	payload, err := json.MarshalJSON()
 	isError(err)
@@ -33,7 +43,7 @@ func IDHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
 	7. If no (frontend sends a new message) :
 		8. Do as in "listenUIPort"
 */
-func MessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
+func MessageHandler(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
 
     if(r.FormValue("Update") == "") { // Send messages to frontend
@@ -72,29 +82,31 @@ func MessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) 
 		fmt.Println("CLIENT MESSAGE", msg) 	
 		fmt.Println("PEERS", gossiper.Peers_as_single_string)
 
+		gossiper.SafeNextClientMessageIDs.mux.Lock()
 		rumorMessage := RumorMessage{
 			Origin: gossiper.Name, 
-	        ID: gossiper.NextClientMessageID,
+	        ID: gossiper.SafeNextClientMessageIDs.NextClientMessageID,
 	        Text: msg,
 		}
 
-	    gossiper.NextClientMessageID++
+	    gossiper.SafeNextClientMessageIDs.NextClientMessageID++
+	    gossiper.SafeNextClientMessageIDs.mux.Unlock()
 
-		stateID := updateStatusAndRumorArray(gossiper, rumorMessage, false)
+	    fmt.Println("Received client message, so sending", rumorMessage, "to one of :", gossiper.Peers)
+
+		stateID := updateStatusAndRumorArray(rumorMessage, false)
+		//updateStatusAndRumorMapsWhenReceivingClientMessage(rumorMessage)
 		
 		if(len(gossiper.Peers) > 0) {
-			if(stateID == "present") {
-				go rumormongering(gossiper, rumorMessage, false)
-			} else {
-				if(rand.Int() % 2 == 0) {
-					go rumormongering(gossiper, rumorMessage, true)
-		        }
-			}
+			go rumormongering(rumorMessage, false)
+			if(stateID != "present") {
+        		fmt.Println("Error : client message", rumorMessage, "has state id :", stateID)
+        	}
 		}
 	}
 }
 
-func PrivateMessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
+func PrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
 
     if(r.FormValue("Update") == "") { // Send private messages to frontend
@@ -136,8 +148,8 @@ func PrivateMessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Re
 			HopLimit : 10,
         }
 
-		address := getAddressFromRoutingTable(gossiper, dest)
-		sendPrivateMsgToSpecificPeer(gossiper, privateMsg, address)
+		address := getAddressFromRoutingTable(dest)
+		sendPrivateMsgToSpecificPeer(privateMsg, address)
 	}
     
 }
@@ -155,7 +167,7 @@ func PrivateMessageHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Re
 		9. If syntax is ok, add to Peers and Peers_as_single_string
 */
 
-func NodeHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
+func NodeHandler(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
 
 	if(r.FormValue("Update") == "") { // Send nodes to frontend
@@ -192,19 +204,16 @@ func NodeHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
 		match, _ := regexp.MatchString(r, newNodeAddr)
 
 		if(match) {
-			updatePeerList(gossiper, newNodeAddr)
+			updatePeerList(newNodeAddr)
 		}
     }   
 }
 
-func CloseNodeHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
+func CloseNodeHandler(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
 
 	if(r.FormValue("Update") == "") { // client wants to get new close nodes
         json := simplejson.New()
-
-
-	    // LOCK ROUTING TABLE MAP ?
 
         gossiper.SafeRoutingTables.mux.Lock()
 	    close_nodes := reflect.ValueOf(gossiper.SafeRoutingTables.RoutingTable).MapKeys()
@@ -249,17 +258,20 @@ func CloseNodeHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request
 			HopLimit : 10,
 		}
 
-        address := getAddressFromRoutingTable(gossiper, dest)
-		sendPrivateMsgToSpecificPeer(gossiper, privateMsg, address)
+        address := getAddressFromRoutingTable(dest)
+		sendPrivateMsgToSpecificPeer(privateMsg, address)
     }   
 }
 
-func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Request) {
+func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
 
 	if(r.FormValue("Update") != "") {
         filename := r.FormValue("FileName")
         file := computeFileIndices(filename)
+
+        fmt.Println("Metahash of file indexed is :", file.Metahash)
+		fmt.Println("Metafile of file indexed is :", file.Metafile)
 
         if(file.Size <= MAX_FILE_SIZE) {
 			// add to map of indexed files
@@ -276,7 +288,7 @@ func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Reque
     	dest := r.FormValue("Destination")
     	metahash := r.FormValue("Metahash")
 
-		address := getAddressFromRoutingTable(gossiper, dest)
+		address := getAddressFromRoutingTable(dest)
 
 		gossiper.SafeIndexedFiles.mux.Lock()
 		_, isIndexed := gossiper.SafeIndexedFiles.IndexedFiles[metahash]
@@ -316,10 +328,205 @@ func FileSharingHandler(gossiper *Gossiper, w http.ResponseWriter, r *http.Reque
 			// Create an empty file with name "filename" in Downloads
 			createEmptyFile(filename)
 
-			sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
-			makeDataRequestTimer(gossiper, dest, dataRequest)
+			sendDataRequestToSpecificPeer(dataRequest, address)
+			makeDataRequestTimer(dest, dataRequest)
 		} else {
 			fmt.Println("ERROR : one of the fields is nil :", filename, metahash, dest, address, " or file already indexed ?", isIndexed)
 		}
     }  
 }
+
+/*
+	Frontend sends a new file search request with an array of keywords and an optional budget
+	Frontend periodically requests if something has been found (?)
+
+	WHAT SHOULD WE DO IF WE RECEIVE A REQUEST AND WE HAVE SOME FILES THAT MATCH THE KEYWORDS ? (send to frontend?)
+*/
+func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+
+	keywordsAsString := r.FormValue("Keywords")
+	receivedBudget := r.FormValue("Budget")
+
+	var budget uint64
+	budgetGiven := true
+
+	//fmt.Println("File search request :", r.FormValue("Keywords"), " with budget :", r.FormValue("Budget"))
+
+	if(receivedBudget == "") {
+		budgetGiven = false
+		budget = 2
+	} else {
+		i, err := strconv.Atoi(receivedBudget)
+		isError(err)
+
+		budget = uint64(i)
+	}
+
+	keywords := strings.Split(keywordsAsString, ",")
+
+	// Check if two keywords are the same ?
+
+
+
+	// Send search request to up to "budget" neighbours :
+	nb_peers := uint64(len(gossiper.Peers))
+
+	if(nb_peers == 0) {
+		fmt.Println("No peers")
+		return 
+	}
+
+	// send to all peers by setting a budget as evenly distributed as possible
+	budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
+
+	fmt.Println("All peers get budget :", budgetForAll, "some peers have increased budget :", nbPeersWithBudgetIncreased)
+
+	total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
+	
+	// Sanity check
+	if(total != budget) {
+		fmt.Println("ERROR : the total budget allocated and the total budget received is not the same :", total, " != ", budget)
+	}
+
+	if(budgetGiven) {
+		sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
+	} else {
+		sendPeriodicalSearchRequest(keywordsAsString, keywords, nb_peers)
+	}
+
+
+
+	/*for _,keyword := range keywords {
+		
+		// for every keywords, check if any file in SafeIndexedFiles has a name that matches the search
+		checkFileNamesForWord(keyword)
+	}*/
+}
+
+func sendPeriodicalSearchRequest(keywordsAsString string, keywords []string, nb_peers uint64) {
+	var budget uint64
+	budget = 2
+
+	gossiper.SafeMySearchRequests.mux.Lock()
+	gossiper.SafeMySearchRequests.SearchRequests[keywordsAsString] = 0
+	gossiper.SafeMySearchRequests.mux.Unlock()
+
+	// in gossiper, should make a map : requestedFileHash -> allChunksFound[]
+	// if the number of matches of a request is >= to ? (nb of keywords or constant 2 ?) then stop sending
+
+	go sendPeriodicalSearchRequestHelper(keywordsAsString, keywords, budget, nb_peers)
+}
+
+func sendPeriodicalSearchRequestHelper(keywordsAsString string, keywords []string, budget uint64, nb_peers uint64) {
+	var ticker *time.Ticker
+	ticker = time.NewTicker(time.Second)
+
+	for {
+		// while we do not reach a budget of MAX_BUDGET or a number of matches = len(keywords), send the request again every second
+		for range ticker.C {
+
+			gossiper.SafeMySearchRequests.mux.Lock()
+			nbMatches := gossiper.SafeMySearchRequests.SearchRequests[keywordsAsString]
+			gossiper.SafeMySearchRequests.mux.Unlock()
+
+			if(budget == MAX_BUDGET || nbMatches == len(keywords)) {
+				fmt.Println("STOPPING TICKER") // todelete
+				ticker.Stop()
+				return 
+			} else {
+				// send the search request 
+				if(nb_peers > 0) {
+					fmt.Println("Sending new request with total budget :", budget)
+					budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
+					fmt.Println("Sending new request with budget for all :", budgetForAll, "and nb peers :", nb_peers)
+					sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
+				}
+
+				// set budget to twice the budget
+				budget = budget * 2
+			}
+		}
+	}
+}
+
+func sendSearchRequestToNeighbours(keywords []string, budgetForAll uint64, nbPeersWithBudgetIncreased uint64) {
+	
+	rand.Seed(time.Now().UTC().UnixNano())
+
+	searchRequest := SearchRequest {
+		Origin: gossiper.Name,
+		Budget: budgetForAll,
+		Keywords: keywords,
+	}
+
+	searchRequestWithAugmentedBudget := SearchRequest {
+		Origin: gossiper.Name,
+		Budget: budgetForAll + 1,
+		Keywords: keywords,
+	}
+
+	allCurrentPeers := gossiper.Peers
+	remainingPeersToSendSearch := make([]string, len(allCurrentPeers))
+	copy(remainingPeersToSendSearch, allCurrentPeers)
+	var luckyPeersToSendSearch []string
+
+	for i := 0; i < int(nbPeersWithBudgetIncreased); i++ {
+		indexToSend := rand.Intn(len(remainingPeersToSendSearch))
+		luckyPeer := remainingPeersToSendSearch[indexToSend]
+		remainingPeersToSendSearch = append(remainingPeersToSendSearch[:indexToSend], remainingPeersToSendSearch[indexToSend+1:]...)
+		luckyPeersToSendSearch = append(luckyPeersToSendSearch, luckyPeer)
+	}
+
+	if(budgetForAll > 0) {
+		// set budget for all peers to basic if not lucky (not in luckyPeersToSendSearch)
+		for _,p := range allCurrentPeers {
+			if(contains(luckyPeersToSendSearch, p)) {
+				// send search request with augmented budget :
+				sendSearchRequestToSpecificPeer(searchRequestWithAugmentedBudget, p)
+
+				// MAKE TIMEOUT ?
+			
+			} else {
+				sendSearchRequestToSpecificPeer(searchRequest, p)
+
+				// MAKE TIMEOUT ?
+			}
+		}
+	} else {
+		// send to lucky peers
+		for _,p := range luckyPeersToSendSearch {
+			sendSearchRequestToSpecificPeer(searchRequestWithAugmentedBudget, p)
+
+			// MAKE TIMEOUT ?
+		}
+	}
+}
+
+func getDistributionOfBudget(budget uint64, nb_peers uint64) (uint64, uint64)  {
+	divResult := float64(budget)/float64(nb_peers)
+	allPeersMinBudget := math.Floor(divResult)
+	//nbPeersWithBudgetIncreased := math.Round((divResult - float64(allPeersMinBudget)) * float64(nb_peers))
+	nbPeersWithBudgetIncreased :=  math.Round(math.Mod(float64(budget), float64(nb_peers)))
+	return uint64(allPeersMinBudget), uint64(nbPeersWithBudgetIncreased)
+}
+
+/*func checkFileNamesForWord(keyword string) {
+	gossiper.SafeIndexedFiles.Lock()
+	for _, file := range gossiper.SafeIndexedFiles.IndexedFiles { 
+	    
+	    if(matchesRegex(file.Name, keyword)) {
+	    	// Send search reply
+	    }
+	}
+
+	gossiper.SafeIndexedFiles.Unlock()
+}
+
+func matchesRegex(filename string, keyword string) bool {
+	r := "(.*)" + keyword + "(.*)"
+	match, _ := regexp.MatchString(r, filename)
+
+	return match
+}*/
+

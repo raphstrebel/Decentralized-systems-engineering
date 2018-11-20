@@ -4,14 +4,15 @@ import(
 	"fmt"
 	"flag"
 	"protobuf"
-	"math/rand"
+	//"math/rand"
 	"mux"
     "handlers"
     "net/http"
     "bytes"
+    "strings"
 )
 
-func listenUIPort(gossiper *Gossiper) {
+func listenUIPort() {
 
 	defer gossiper.UIPortConn.Close()
  	
@@ -32,24 +33,28 @@ func listenUIPort(gossiper *Gossiper) {
 	        fmt.Println("CLIENT MESSAGE", msg) 
 	        fmt.Println("PEERS", gossiper.Peers_as_single_string)
 
+	        gossiper.SafeNextClientMessageIDs.mux.Lock()
+
         	rumorMessage := RumorMessage{
         		Origin: gossiper.Name, 
-        		ID: gossiper.NextClientMessageID,
+        		ID: gossiper.SafeNextClientMessageIDs.NextClientMessageID,
         		Text: msg,
         	}
 
+        	gossiper.SafeNextClientMessageIDs.NextClientMessageID ++
+        	gossiper.SafeNextClientMessageIDs.mux.Unlock()
+
         	gossiper.LastRumor = rumorMessage
-        	stateID := updateStatusAndRumorArray(gossiper, rumorMessage, false)
-        	gossiper.NextClientMessageID ++
+        	stateID := updateStatusAndRumorArray(rumorMessage, false)
+        	//updateStatusAndRumorMapsWhenReceivingClientMessage(rumorMessage)
+
+        	fmt.Println("Received client message, so sending to one of :", gossiper.Peers)
 
         	if(len(gossiper.Peers) > 0) {
-        		if(stateID == "present") {
-        			go rumormongering(gossiper, rumorMessage, false)
-        		} else {
-	        		if(rand.Int() % 2 == 0) {
-	        			go rumormongering(gossiper, rumorMessage, true)
-	        		}
-	        	}
+        		go rumormongering(rumorMessage, false)
+        		if(stateID != "present") {
+        			fmt.Println("Error : client message", rumorMessage, "has state id :", stateID)
+        		}
         	}
 		} else if(receivedPkt.Private != nil) {
 			privateMsg := PrivateMessage{
@@ -60,10 +65,10 @@ func listenUIPort(gossiper *Gossiper) {
                 HopLimit : 10,
             }
 
-			address := getAddressFromRoutingTable(gossiper, receivedPkt.Private.Destination)
+			address := getAddressFromRoutingTable(receivedPkt.Private.Destination)
 
 			if(address != "") {
-				sendPrivateMsgToSpecificPeer(gossiper, privateMsg, address)
+				sendPrivateMsgToSpecificPeer(privateMsg, address)
 			}
 		} else if(receivedPkt.File != nil) { // New file to be indexed
 
@@ -78,8 +83,8 @@ func listenUIPort(gossiper *Gossiper) {
 				gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = file
 				gossiper.SafeIndexedFiles.mux.Unlock()
 
-				//fmt.Println("Metahash of file indexed is :", metahash_hex)
-				//fmt.Println("Metafile of file indexed is :", file.Metafile)
+				fmt.Println("Metahash of file indexed is :", metahash_hex)
+				fmt.Println("Metafile of file indexed is :", file.Metafile)
 			} else {
 				fmt.Println("Error : file too big :", file.Size)
 			}
@@ -90,7 +95,7 @@ func listenUIPort(gossiper *Gossiper) {
 
 			//fmt.Println("Received Request from client for :", request_metahash)
 
-			address := getAddressFromRoutingTable(gossiper, dest)
+			address := getAddressFromRoutingTable(dest)
 
 			gossiper.SafeIndexedFiles.mux.Lock()
 			_, isIndexed := gossiper.SafeIndexedFiles.IndexedFiles[request_metahash]
@@ -124,6 +129,7 @@ func listenUIPort(gossiper *Gossiper) {
 				gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[dest] = append(requestedArray, FileAndIndex{
 					Metahash : request_metahash,
 					NextIndex : -1,
+					Done : false,
 				})
 
 				gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
@@ -131,14 +137,56 @@ func listenUIPort(gossiper *Gossiper) {
 				// Create an empty file with name "filename" in Downloads
 				createEmptyFile(filename)
 
-				sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
-				makeDataRequestTimer(gossiper, dest, dataRequest)
+				fmt.Println("DOWNLOADING metafile of", filename, "from", dest)
+
+				sendDataRequestToSpecificPeer(dataRequest, address)
+				makeDataRequestTimer(dest, dataRequest)
+			}
+		} else if(receivedPkt.Search != nil) {
+			keywordsAsString := receivedPkt.Search.Keywords
+			receivedBudget := receivedPkt.Search.Budget
+
+			var budget uint64
+			budgetGiven := true
+
+			//fmt.Println("File search request :", r.FormValue("Keywords"), " with budget :", r.FormValue("Budget"))
+
+			if(receivedBudget == 0) {
+				budgetGiven = false
+				budget = 2
+			} else {
+				budget = uint64(receivedBudget)
+			}
+
+			keywords := strings.Split(keywordsAsString, ",")
+
+			// Send search request to up to "budget" neighbours :
+			nb_peers := uint64(len(gossiper.Peers))
+
+			if(nb_peers > 0) {
+				// send to all peers by setting a budget as evenly distributed as possible
+				budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
+
+				fmt.Println("All peers get budget :", budgetForAll, "some peers have increased budget :", nbPeersWithBudgetIncreased)
+
+				total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
+				
+				// Sanity check
+				if(total != budget) {
+					fmt.Println("ERROR : the total budget allocated and the total budget received is not the same :", total, " != ", budget)
+				}
+
+				if(budgetGiven) {
+					sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
+				} else {
+					sendPeriodicalSearchRequest(keywordsAsString, keywords, nb_peers)
+				}
 			}
 		}
     }
 }
 
-func listenGossipPort(gossiper *Gossiper) {
+func listenGossipPort() {
 
 	defer gossiper.GossipPortConn.Close()
 	packetBytes := make([]byte, UDP_PACKET_SIZE)
@@ -154,7 +202,7 @@ func listenGossipPort(gossiper *Gossiper) {
 		protobuf.Decode(packetBytes, receivedPkt)
 
 		peerAddr := addr.String()		
-		updatePeerList(gossiper, peerAddr)
+		updatePeerList(peerAddr)
 
         if(receivedPkt.Rumor != nil) {
 
@@ -172,67 +220,69 @@ func listenGossipPort(gossiper *Gossiper) {
 			
 			// Check to see if message is not a route rumor
 			if(msg != "") {		
-				stateID = updateStatusAndRumorArray(gossiper, rumorMessage, false)
-        		fmt.Println("RUMOR origin", origin, "from", peerAddr, "ID", id, "contents", msg) 
-        		fmt.Println("PEERS", gossiper.Peers_as_single_string)
+				stateID = updateStatusAndRumorArray(rumorMessage, false)
+				if(stateID == "present") {
+					fmt.Println("RUMOR origin", origin, "from", peerAddr, "ID", id, "contents", msg) 
+        			fmt.Println("PEERS", gossiper.Peers_as_single_string)
+				}
         	} else {
-        		stateID = updateStatusAndRumorArray(gossiper, rumorMessage, true)
+        		stateID = updateStatusAndRumorArray(rumorMessage, true)
         	}
 
         	tableUpdated = false
 
         	if(stateID == "present" || stateID == "future") {
-	        	tableUpdated = updateRoutingTable(gossiper, rumorMessage, peerAddr)
+	        	tableUpdated = updateRoutingTable(rumorMessage, peerAddr)
 	        }
 
         	if(tableUpdated) {
         		fmt.Println("DSDV", origin, peerAddr)
         	}
 
-        	sendStatusMsgToSpecificPeer(gossiper, peerAddr)
+        	sendStatusMsgToSpecificPeer(peerAddr)
         	
         	if(len(gossiper.Peers) > 0) {
         		if(stateID == "present") {
-        			go rumormongering(gossiper, rumorMessage, false)
+        			go rumormongering(rumorMessage, false)
         		} else {
-	        		if(rand.Int() % 2 == 0) {
-	        			go rumormongering(gossiper, rumorMessage, true)
-	        		}
+	        		/*if(rand.Int() % 2 == 0) {
+	        			go rumormongering(rumorMessage, true)
+	        		}*/
 	        	}
         	}
 	    } else if(receivedPkt.Status != nil) {
 
-	    	isResponse := isStatusResponse(gossiper, peerAddr)
+	    	isResponse := isStatusResponse(peerAddr)
 	    	
 	    	if(isResponse) {
-	    		removeFinishedTimer(gossiper, peerAddr)
+	    		removeFinishedTimer(peerAddr)
 	    	}
 
 			peerStatus :=  receivedPkt.Status.Want
 
-			printStatusReceived(gossiper, peerStatus, peerAddr)
-			fmt.Println("PEERS", gossiper.Peers_as_single_string)
+			printStatusReceived(peerStatus, peerAddr)
+			//fmt.Println("PEERS", gossiper.Peers_as_single_string)
 
-			rumorToSend, statusToSend := compareStatus(gossiper, peerStatus, peerAddr)
+			rumorToSend, statusToSend := compareStatus(peerStatus, peerAddr)
 
 			if(rumorToSend != nil) {
 
-				sendRumorMsgToSpecificPeer(gossiper, *rumorToSend, peerAddr)
-				makeTimer(gossiper, peerAddr, *rumorToSend)
+				sendRumorMsgToSpecificPeer(*rumorToSend, peerAddr)
+				makeTimer(peerAddr, *rumorToSend)
 
 			} else if(statusToSend != nil) {
 
-				sendStatusMsgToSpecificPeer(gossiper, peerAddr)
+				sendStatusMsgToSpecificPeer(peerAddr)
 
 			} else {
-				fmt.Println("IN SYNC WITH", peerAddr)
+				//fmt.Println("IN SYNC WITH", peerAddr)
 
-				if(rand.Int() % 2 == 0) {
+				/*if(rand.Int() % 2 == 0) {
 					// Reading rumor message map ?
 					if(len(gossiper.SafeRumors.RumorMessages) > 0) {
-		        		go rumormongering(gossiper, gossiper.LastRumor, true)
+		        		go rumormongering(gossiper.LastRumor, true)
 		        	}
-	        	}
+	        	}*/
 			}
 		} else if(receivedPkt.Private != nil) {
 			origin := receivedPkt.Private.Origin
@@ -252,11 +302,11 @@ func listenGossipPort(gossiper *Gossiper) {
 				fmt.Println("PRIVATE origin", origin, "hop-limit", hopLimit, "contents", msg)
 				gossiper.PrivateMessages = append(gossiper.PrivateMessages, privateMsg)
 			} else {
-            	address := getAddressFromRoutingTable(gossiper, dest)
+            	address := getAddressFromRoutingTable(dest)
 
             	if(address != "" && hopLimit != 0) {
 					privateMsg.HopLimit--
-					sendPrivateMsgToSpecificPeer(gossiper, privateMsg, address)
+					sendPrivateMsgToSpecificPeer(privateMsg, address)
 				}
 			}
 		} else if(receivedPkt.DataRequest != nil) {
@@ -268,14 +318,14 @@ func listenGossipPort(gossiper *Gossiper) {
 
 			if(dest == gossiper.Name) {
 				
-				address := getAddressFromRoutingTable(gossiper, requestOrigin)
+				address := getAddressFromRoutingTable(requestOrigin)
 
 				if(address != "") {
 					gossiper.SafeIndexedFiles.mux.Lock()
 					file, isMetaHash := gossiper.SafeIndexedFiles.IndexedFiles[hashValue_hex]
 					gossiper.SafeIndexedFiles.mux.Unlock()
 
-					//fmt.Println("Received request :", hashValue_hex, " from :", requestOrigin)
+					fmt.Println("Received request :", hashValue_hex, " from :", requestOrigin)
 					
 					// check if hashValue is a metahash, if yes send the metafile
 					if(isMetaHash) {
@@ -305,7 +355,7 @@ func listenGossipPort(gossiper *Gossiper) {
 						}
 
 						//fmt.Println("Sending metafile :", file.Metafile)
-						sendDataReplyToSpecificPeer(gossiper, dataReply, address)
+						sendDataReplyToSpecificPeer(dataReply, address)
 
 					} else {
 						//fmt.Println("THIS IS A CHUNK REQUEST")
@@ -316,17 +366,12 @@ func listenGossipPort(gossiper *Gossiper) {
 						//gossiper.SafeRequestOriginToFileAndIndexes.mux.Unlock()
 						nextChunkHash := hashValue_hex
 						
-						//if(isDownloading) {
+						//fmt.Println("We want the chunk hash :", nextChunkHash)
+						chunkToSend, fileIsIndexed, _ := checkFilesForNextChunk(requestOrigin, nextChunkHash)
 
-							//fmt.Println("We want the chunk hash :", nextChunkHash)
+						var dataReply DataReply
 
-							//chunkToSend, fileIsIndexed, index := checkFilesForNextChunk(gossiper, filesBeingDownloaded, requestOrigin, nextChunkHash)
-							//chunkToSend, fileIsIndexed, _ := checkFilesForNextChunk(gossiper, filesBeingDownloaded, requestOrigin, nextChunkHash)
-							chunkToSend, fileIsIndexed, _ := checkFilesForNextChunk(gossiper, requestOrigin, nextChunkHash)
-
-							var dataReply DataReply
-
-							if(fileIsIndexed) {
+						if(fileIsIndexed) {
 								//fmt.Println("We have the file")
 								//fmt.Println("The hash of the data we are sending :", bytesToHex(computeHash(hexToBytes(chunkToSend))))
 								//fmt.Println("The data we are sending :", chunkToSend)
@@ -335,32 +380,31 @@ func listenGossipPort(gossiper *Gossiper) {
 					            //gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin][index].NextIndex++
 					            //gossiper.SafeRequestOriginToFileAndIndexes.mux.Unlock()
 
-								dataReply = DataReply{
-									Origin : gossiper.Name,
-									Destination : requestOrigin,
-									HopLimit : 10,
-									HashValue : hashValue_bytes, // hash of i'th chunk
-									Data : hexToBytes(chunkToSend), // get i'th chunk
-								}
-							} else {
-								//fmt.Println("send empty data to show that we do not posses the file")
-								dataReply = DataReply{
-									Origin : gossiper.Name,
-									Destination : requestOrigin,
-									HopLimit : 10,
-									HashValue : hashValue_bytes, 
-									Data : []byte{}, // send empty data to show that we do not posses the file 
-								}
+							dataReply = DataReply{
+								Origin : gossiper.Name,
+								Destination : requestOrigin,
+								HopLimit : 10,
+								HashValue : hashValue_bytes, // hash of i'th chunk
+								Data : hexToBytes(chunkToSend), // get i'th chunk
 							}
+						} else {
+							//fmt.Println("send empty data to show that we do not posses the file")
+							dataReply = DataReply{
+								Origin : gossiper.Name,
+								Destination : requestOrigin,
+								HopLimit : 10,
+								HashValue : hashValue_bytes, 
+								Data : []byte{}, // send empty data to show that we do not posses the file 
+							}
+						}
 
-							//fmt.Println("Sending new chunk of hash :", nextChunkHash)
-							sendDataReplyToSpecificPeer(gossiper, dataReply, address)
-						//}
+						//fmt.Println("Sending new chunk of hash :", nextChunkHash)
+						sendDataReplyToSpecificPeer(dataReply, address)
 					}
 				}
 			} else {
 
-				address := getAddressFromRoutingTable(gossiper, dest)
+				address := getAddressFromRoutingTable(dest)
 
             	if(address != "" && hopLimit != 0) {
             		dataRequest := DataRequest {
@@ -370,13 +414,13 @@ func listenGossipPort(gossiper *Gossiper) {
 						HashValue : hashValue_bytes,
 					}
 
-					sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
+					sendDataRequestToSpecificPeer(dataRequest, address)
 				}
 			}
 
 		} else if(receivedPkt.DataReply != nil) {
 
-			fmt.Println("RECEIVED DATA REPLY")
+			//fmt.Println("RECEIVED DATA REPLY")
 
 			fileOrigin := receivedPkt.DataReply.Origin
 			dest := receivedPkt.DataReply.Destination
@@ -384,14 +428,13 @@ func listenGossipPort(gossiper *Gossiper) {
 			hopLimit := receivedPkt.DataReply.HopLimit
 			data := receivedPkt.DataReply.Data
 
-
 			if(dest == gossiper.Name) {
 
 				// check if we are expecting a reply from "fileOrigin" and cancel timer 
-				isResponse := isDataResponse(gossiper, fileOrigin)
+				isResponse := isDataResponse(fileOrigin)
 	    	
 		    	if(isResponse) {
-		    		removeFinishedDataRequestTimer(gossiper, fileOrigin)
+		    		removeFinishedDataRequestTimer(fileOrigin)
 		    	}
 
 		    	// check that hashValue is hash of data and we are expecting a response
@@ -399,11 +442,11 @@ func listenGossipPort(gossiper *Gossiper) {
 
 		    	if((bytes.Equal(hash, hashValue) && isResponse) && len(receivedPkt.DataReply.Data) != 0) {
 
-		    		indexOfFile, isMetafile, nextChunkHash, isLastChunk := getNextChunkHashToRequest(gossiper, fileOrigin, bytesToHex(hashValue))
+		    		indexOfFile, isMetafile, nextChunkHash, isLastChunk := getNextChunkHashToRequest(fileOrigin, bytesToHex(hashValue))
 
 		    		if(indexOfFile >= 0) {
 		    			
-		    			address := getAddressFromRoutingTable(gossiper, fileOrigin)
+		    			address := getAddressFromRoutingTable(fileOrigin)
 
 		    			if(isMetafile) {
 
@@ -418,6 +461,7 @@ func listenGossipPort(gossiper *Gossiper) {
 				    			gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex = 0
 				    			gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash = metahash_hex
 				    			gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metafile = metafile_hex
+				    			chunkIndex := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex + 1
 				    			gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
 
 				    			gossiper.SafeIndexedFiles.mux.Lock()
@@ -426,7 +470,8 @@ func listenGossipPort(gossiper *Gossiper) {
 				    			gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = f
 				    			gossiper.SafeIndexedFiles.mux.Unlock()
 
-				    			fmt.Println("DOWNLOADING metafile of", f.Name, "from", fileOrigin)
+				    			//fmt.Println("DOWNLOADING metafile of", f.Name, "from", fileOrigin)
+				    			fmt.Println("DOWNLOADING", f.Name, "chunk", chunkIndex, "from", fileOrigin) // test
 
 				    			// Request first chunk
 				    			firstChunk := metafile[0:HASH_SIZE]
@@ -438,8 +483,8 @@ func listenGossipPort(gossiper *Gossiper) {
 									HashValue : firstChunk,
 								}
 								
-								sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
-								makeDataRequestTimer(gossiper, fileOrigin, dataRequest)
+								sendDataRequestToSpecificPeer(dataRequest, address)
+								makeDataRequestTimer(fileOrigin, dataRequest)
 
 			    			} else {
 			    				fmt.Println("Wrong metafile (not of chunks of size CHUNK_SIZE) : ", metafile_hex)
@@ -448,7 +493,7 @@ func listenGossipPort(gossiper *Gossiper) {
 							// Save the data received to the file name :
 							gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
 							metahash_hex := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash
-							chunkIndex := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex + 1
+							//chunkIndex := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex + 1
 							gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
 
 							gossiper.SafeIndexedFiles.mux.Lock()
@@ -457,7 +502,7 @@ func listenGossipPort(gossiper *Gossiper) {
 
 							writeChunkToFile(f.Name, data)
 
-							fmt.Println("DOWNLOADING", f.Name, "chunk", chunkIndex, "from", fileOrigin)
+							//fmt.Println("DOWNLOADING", f.Name, "chunk", chunkIndex, "from", fileOrigin)
 
 							hashValue_hex := bytesToHex(hashValue)
 
@@ -468,7 +513,9 @@ func listenGossipPort(gossiper *Gossiper) {
 								copyFileToDownloads(f.Name)
 
 								// erase the file from RequestDestinationToFileAndIndex[fileOrigin]
-								//TODO
+								gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
+								gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Done = true
+								gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
 
 							} 
 						} else {
@@ -476,7 +523,7 @@ func listenGossipPort(gossiper *Gossiper) {
 							gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
 							metahash_hex := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash
 							gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex++
-							chunkIndex := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex
+							chunkIndex := gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].NextIndex+1
 							gossiper.SafeRequestDestinationToFileAndIndexes.mux.Unlock()
 
 							gossiper.SafeIndexedFiles.mux.Lock()
@@ -495,8 +542,8 @@ func listenGossipPort(gossiper *Gossiper) {
 								HashValue : hexToBytes(nextChunkHash),
 							}
 								
-							sendDataRequestToSpecificPeer(gossiper, dataRequest, address)
-							makeDataRequestTimer(gossiper, fileOrigin, dataRequest)
+							sendDataRequestToSpecificPeer(dataRequest, address)
+							makeDataRequestTimer(fileOrigin, dataRequest)
 
 						}
 
@@ -504,12 +551,23 @@ func listenGossipPort(gossiper *Gossiper) {
 		    			fmt.Println("ERROR : CHUNK OF FILE NOT FOUND")
 		    		}
 		    	} else {
-		    		fmt.Println("Error : hash of data is not hashValue of dataReply", hash, " != ", receivedPkt.DataReply.HashValue, 
+		    		fmt.Println("Error : hash of data is not hashValue of dataReply", hash, " != ", hashValue, 
 		    			" or we do not expect response ? is response = ", isResponse)
+
+		    		hashValue_hex := bytesToHex(hashValue)
+
+		    		gossiper.SafeIndexedFiles.mux.Lock()
+					_, exists := gossiper.SafeIndexedFiles.IndexedFiles[hashValue_hex]
+
+					if(exists) {
+						// we delete the file
+						delete(gossiper.SafeIndexedFiles.IndexedFiles, hashValue_hex)
+					}
+					gossiper.SafeIndexedFiles.mux.Unlock()
 		    	}
 			} else {
 				// Send to next in routing table 
-				address := getAddressFromRoutingTable(gossiper, dest)
+				address := getAddressFromRoutingTable(dest)
 
             	if(address != "" && hopLimit != 0) {
             		dataReply := DataReply {
@@ -520,7 +578,7 @@ func listenGossipPort(gossiper *Gossiper) {
 						Data : data,
 					}
 
-					sendDataReplyToSpecificPeer(gossiper, dataReply, address)
+					sendDataReplyToSpecificPeer(dataReply, address)
 				}
 			}
 		}  
@@ -538,56 +596,58 @@ func main() {
 	simple := flag.Bool("simple", false, "a bool")
 	flag.Parse()
 
-	var gossiper = NewGossiper("127.0.0.1:" + *UIPort, *gossipAddr, *name, *peers)
+	gossiper = NewGossiper("127.0.0.1:" + *UIPort, *gossipAddr, *name, *peers)
 
 	if(*simple == true){
 		// goroutines to listen on both ports simultaneously
-		go simpleListenUIPort(gossiper)
-		simpleListenGossipPort(gossiper)
+		go simpleListenUIPort()
+		simpleListenGossipPort()
 	} else { 
 		// goroutines to listen on both ports, run anti entropy and serve frontend simultaneously
 		if(*rtimer != 0) {
-			go generatePeriodicalRouteMessage(gossiper, *rtimer)
+			go generatePeriodicalRouteMessage(*rtimer)
 		}
 
-		go listenUIPort(gossiper)
-		go listenGossipPort(gossiper)
-		//go antiEntropy(gossiper)
+		go listenUIPort()
+		go listenGossipPort()
+		//go antiEntropy()
 
 		r := mux.NewRouter()
 
 		r.HandleFunc("/id", func(w http.ResponseWriter, r *http.Request) {
-		    IDHandler(gossiper, w, r)
+		    IDHandler(w, r)
 		})
 		r.HandleFunc("/message", func(w http.ResponseWriter, r *http.Request) {
-		    MessageHandler(gossiper, w, r)
+		    MessageHandler(w, r)
 		})
 		r.HandleFunc("/node", func(w http.ResponseWriter, r *http.Request) {
-		    NodeHandler(gossiper, w, r)
+		    NodeHandler(w, r)
 		})
 		r.HandleFunc("/route", func(w http.ResponseWriter, r *http.Request) {
-		    CloseNodeHandler(gossiper, w, r)
+		    CloseNodeHandler(w, r)
 		})
 		r.HandleFunc("/privateMessage", func(w http.ResponseWriter, r *http.Request) {
-		    PrivateMessageHandler(gossiper, w, r)
+		    PrivateMessageHandler(w, r)
 		})
 		r.HandleFunc("/fileSharing", func(w http.ResponseWriter, r *http.Request) {
-		    FileSharingHandler(gossiper, w, r)
+		    FileSharingHandler(w, r)
 		})
-		r.HandleFunc("/fileSharing", func(w http.ResponseWriter, r *http.Request) {
-		    FileSharingHandler(gossiper, w, r)
+		r.HandleFunc("/fileSearching", func(w http.ResponseWriter, r *http.Request) {
+		    FileSearchHandler(w, r)
 		})
 
 	    http.ListenAndServe(":8080", handlers.CORS()(r))
 	}
 
 	/* LIST OF THINGS TO DO IN ORDER OF PRIORITY :
-	4. frontend should send number of messages it has (id of last received) so that when restarting frontend you have them all
-	5. for routing messages : map of [ip] -> (origin, lastID)
-	6. Put the frontend request period to 1sec
-	7. When frontend sends "getID", put all "last sent indices" to 0 again
-	8. erase the file from RequestDestinationToFileAndIndex[fileOrigin]
-	
+	1. for routing messages : map of [ip] -> (origin, lastID)
+	2. Change the UIPort to receive a request (just as done with frontendHandler)
+
+	ISSUES :
+		- if the number of matches of a request is >= to ? (nb of keywords or constant 2 ?) then stop augmenting
+		- Check if two keywords are the same ?
+
+	commented rand.Int() in main.go, messageHandler of frontendHandler.go and in makeTimer of basicMethods, to uncomment.
 	Should I erase the node requesting the file when I send him the last reply ? If yes after how much time
 	*/
 

@@ -12,6 +12,7 @@ type ClientPacket struct {
     Private *PrivateMessage
     File *FileMessage
     Request *FileRequestMessage
+    Search *FileSearchMessage
 }
 
 type NormalMessage struct {
@@ -34,6 +35,11 @@ type FileRequestMessage struct {
     FileName string
     Destination string
     Request string
+}
+
+type FileSearchMessage struct {
+    Keywords string
+    Budget uint64
 }
 
 func isError(err error) {
@@ -67,6 +73,8 @@ func main() {
     msg := flag.String("msg", "", "a message as string")
     file := flag.String("file", "", "a file as string")
     request := flag.String("request", "", "a hexadecimal metahash as string")
+    keywords := flag.String("keywords", "", "comma-separated list of keywords as string")
+    budget := flag.Uint64("budget", 0, "an int >= 0")
     flag.Parse() 
 
     gossiperAddr := "127.0.0.1:" + *UIPort
@@ -100,17 +108,28 @@ func main() {
             }
         }
     } else if(*file != "") { 
-        if(*file != "") {
-            // check if the file exists ?
-            fileMessage := &FileMessage{
-                FileName: *file,
-            }
-
-            packet := ClientPacket{File: fileMessage}
-            sendPacket(packet, gossiperAddr)
+        // check if the file exists ?
+        fileMessage := &FileMessage{
+            FileName: *file,
         }
 
-    } else { // dest is nil, so send a normal message
+        packet := ClientPacket{File: fileMessage}
+        sendPacket(packet, gossiperAddr)
+    } else if(*keywords != "") {
+
+        if(*budget == 0) {
+            fmt.Println("budget set to default")
+        }
+        
+        // WHEN SHOULD WE CHECK IF THE BUDGET HAS BEEN GIVEN ?
+        fileSearchMessage := &FileSearchMessage{
+            Keywords: *keywords,
+            Budget: *budget,
+        }
+
+        packet := ClientPacket{Search: fileSearchMessage}
+        sendPacket(packet, gossiperAddr)
+    } else { // dest and file is nil, so send a normal message
         
         message := &NormalMessage{
             Text: *msg,
@@ -118,5 +137,5 @@ func main() {
 
         packet := ClientPacket{Message: message}
         sendPacket(packet, gossiperAddr)
-    }
+    } 
 }

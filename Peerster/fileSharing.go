@@ -70,7 +70,7 @@ func computeHash(b []byte) []byte {
 
 // return next chunk, found (boolean), metahash
 //func checkFilesForNextChunk(gossiper *Gossiper, filesBeingDownloaded []FileAndIndex, origin string, nextChunkHash string) ([]byte, bool, string) {
-func checkFilesForNextChunk(gossiper *Gossiper, origin string, nextChunkHash string) (string, bool, string) {
+func checkFilesForNextChunk(origin string, nextChunkHash string) (string, bool, string) {
     var chunk string
 
     gossiper.SafeIndexedFiles.mux.Lock()
@@ -159,7 +159,7 @@ func checkFilesForNextChunk(gossiper *Gossiper, origin string, nextChunkHash str
     }*/
 
 // returns index of file, isMetafile, nextChunkHash, isLastChunk
-func getNextChunkHashToRequest(gossiper *Gossiper, fileOrigin string, hashValue string) (int, bool, string, bool) {
+func getNextChunkHashToRequest(fileOrigin string, hashValue string) (int, bool, string, bool) {
     var nextChunkHash string
     isMetafile := false
     indexOfFile := -1
@@ -176,7 +176,7 @@ func getNextChunkHashToRequest(gossiper *Gossiper, fileOrigin string, hashValue 
     // First check if we received a metafile
     for i, fileAndIndex := range filesOfOrigin {
         metahash_hex = fileAndIndex.Metahash
-        if((fileAndIndex.NextIndex == -1) && (hashValue == metahash_hex)) {
+        if((fileAndIndex.NextIndex == -1) && (hashValue == metahash_hex) && !fileAndIndex.Done) {
             // return first chunkHash
             nextChunkHash = metahash_hex[0:2*HASH_SIZE]
             isMetafile = true
@@ -215,7 +215,7 @@ func getNextChunkHashToRequest(gossiper *Gossiper, fileOrigin string, hashValue 
 }
 
 // returns index of file, isMetafile, nextChunk
-func getNextChunkToRequest(gossiper *Gossiper, fileOrigin string, hashValue []byte) (int, bool, []byte) {
+func getNextChunkToRequest(fileOrigin string, hashValue []byte) (int, bool, []byte) {
     var nextChunk []byte
     isMetafile := false
     indexOfFile := -1
@@ -341,6 +341,7 @@ func computeFileIndices(filename string) File {
     }
 
     f.Metafile = bytesToHex(metafile)   
+    //fmt.Println("Metafile :", f.Metafile, " or as bytes :", metafile)
 
     // compute metahash
     h = sha256.New()

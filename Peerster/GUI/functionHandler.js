@@ -164,6 +164,25 @@ function sendNodeFileRequest() {
 	}	
 }
 
+function sendFileRequest() {
+	const keywords = document.getElementById("keywordsID").value;
+	const budget = document.getElementById("budgetID").value;
+	var budgetToSend;
+	
+	if(budget != "" && budget >= 0) {
+		budgetToSend = budget;
+	} 
+
+	if(keywords != "") {
+		$.ajax({
+		  type: "POST",
+		  url: SERVER_ADDRESS + '/fileSearching', 
+		  data: {Keywords: keywords, Budget: budgetToSend},
+		  dataType: 'jsonp'
+		});
+	}
+}
+
 // Prints the list of messages in initial array
 function showMessages() {
 	// Create a paragraph (line) for each message
@@ -300,7 +319,7 @@ window.onload = function() {
 		getNewNodes(); 
 		getNewCloseNodes();
 		getNewPrivateMessages();
-	}, 1000);
+	}, 3000);
 };
 
 

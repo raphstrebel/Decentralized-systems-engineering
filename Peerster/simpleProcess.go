@@ -6,7 +6,7 @@ import(
 	"protobuf"
 )
 
-func simpleListenUIPort(gossiper *Gossiper) {
+func simpleListenUIPort() {
 
 	defer gossiper.UIPortConn.Close()
  
@@ -33,12 +33,12 @@ func simpleListenUIPort(gossiper *Gossiper) {
 				Contents: msg,
         	}
 
-        	sendSimpleMsgToAllPeersExceptSender(gossiper, simpleMessage, "")
+        	sendSimpleMsgToAllPeersExceptSender(simpleMessage, "")
 		}
     }
 }
 
-func simpleListenGossipPort(gossiper *Gossiper) {
+func simpleListenGossipPort() {
 	defer gossiper.GossipPortConn.Close()
 	packetBytes := make([]byte, 1024)
 
@@ -52,7 +52,7 @@ func simpleListenGossipPort(gossiper *Gossiper) {
 		protobuf.Decode(packetBytes, receivedPkt)
 
 		peerAddr := addr.String()	
-		updatePeerList(gossiper, peerAddr)	
+		updatePeerList(peerAddr)	
 
         if(receivedPkt.Simple != nil) {
 
@@ -68,12 +68,12 @@ func simpleListenGossipPort(gossiper *Gossiper) {
 				Contents: msg,
         	}
 
-        	sendSimpleMsgToAllPeersExceptSender(gossiper, simpleMessage, peerAddr)
+        	sendSimpleMsgToAllPeersExceptSender(simpleMessage, peerAddr)
 		}
     }
 }
 
-func sendSimpleMsgToAllPeersExceptSender(gossiper *Gossiper, simpleMessage SimpleMessage, sender string) {
+func sendSimpleMsgToAllPeersExceptSender(simpleMessage SimpleMessage, sender string) {
 
 	if(len(gossiper.Peers) == 0) {
 		return 

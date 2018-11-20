@@ -3,12 +3,12 @@ package main
 import(
 	"protobuf"
 	"net"
-	//"fmt"
+	"fmt"
 	"time"
 	"math/rand"
 )
 
-func sendPacketToSpecificPeer(gossiper *Gossiper, packet GossipPacket, address string) {
+func sendPacketToSpecificPeer(packet GossipPacket, address string) {
 	packetBytes, err := protobuf.Encode(&packet)
 	isError(err)
 
@@ -20,39 +20,45 @@ func sendPacketToSpecificPeer(gossiper *Gossiper, packet GossipPacket, address s
 	isError(err)
 }
 
-func sendRumorMsgToSpecificPeer(gossiper *Gossiper, rumorMessage RumorMessage, address string) {
+func sendRumorMsgToSpecificPeer(rumorMessage RumorMessage, address string) {
 	//fmt.Println("MONGERING with", address)
 
 	// Encode message
 	packet := GossipPacket{Rumor: &rumorMessage}
-	sendPacketToSpecificPeer(gossiper, packet, address)
+	sendPacketToSpecificPeer(packet, address)
 }
 
-func sendPrivateMsgToSpecificPeer(gossiper *Gossiper, privateMessage PrivateMessage, address string) {
+func sendPrivateMsgToSpecificPeer(privateMessage PrivateMessage, address string) {
 	// Encode message
 	packet := GossipPacket{Private: &privateMessage}
-	sendPacketToSpecificPeer(gossiper, packet, address)
+	sendPacketToSpecificPeer(packet, address)
 }
 
-func sendStatusMsgToSpecificPeer(gossiper *Gossiper, address string) {
+func sendStatusMsgToSpecificPeer(address string) {
 	// Encode message
 	packet := GossipPacket{Status: gossiper.StatusPacket}
-	sendPacketToSpecificPeer(gossiper, packet, address)
+	sendPacketToSpecificPeer(packet, address)
 }
 
-func sendDataRequestToSpecificPeer(gossiper *Gossiper, dataRequest DataRequest, address string) {
+func sendDataRequestToSpecificPeer(dataRequest DataRequest, address string) {
 	// Encode message
 	packet := GossipPacket{DataRequest: &dataRequest}
-	sendPacketToSpecificPeer(gossiper, packet, address)
+	sendPacketToSpecificPeer(packet, address)
 }
 
-func sendDataReplyToSpecificPeer(gossiper *Gossiper, dataReply DataReply, address string) {
+func sendDataReplyToSpecificPeer(dataReply DataReply, address string) {
 	// Encode message
 	packet := GossipPacket{DataReply: &dataReply}
-	sendPacketToSpecificPeer(gossiper, packet, address)
+	sendPacketToSpecificPeer(packet, address)
 }
 
-func generatePeriodicalRouteMessage(gossiper *Gossiper, rtimer int) {
+func sendSearchRequestToSpecificPeer(searchRequest SearchRequest, address string) {
+	// Encode message
+	packet := GossipPacket{SearchRequest: &searchRequest}
+	sendPacketToSpecificPeer(packet, address)
+}
+
+func generatePeriodicalRouteMessage(rtimer int) {
 	var ticker *time.Ticker
 	var luckyPeer string
 	var routeMessage RumorMessage
@@ -61,25 +67,37 @@ func generatePeriodicalRouteMessage(gossiper *Gossiper, rtimer int) {
 	for {
 		for range ticker.C {
 			if(len(gossiper.Peers) > 0) {
+
+				gossiper.SafeNextClientMessageIDs.mux.Lock()
 				routeMessage = RumorMessage{
 					Origin: gossiper.Name,
-					ID: gossiper.NextClientMessageID, // WHAT SHOULD THE ID OF ROUTE MESSAGES BE ?
+					ID: gossiper.SafeNextClientMessageIDs.NextClientMessageID, // WHAT SHOULD THE ID OF ROUTE MESSAGES BE ?
 					Text: "",
 				}
 
-				gossiper.NextClientMessageID++
+				gossiper.SafeNextClientMessageIDs.NextClientMessageID++
+				gossiper.SafeNextClientMessageIDs.mux.Unlock()
 
 				rand.Seed(time.Now().UTC().UnixNano())
 	    		luckyPeer = gossiper.Peers[rand.Intn(len(gossiper.Peers))]
-	    		sendRumorMsgToSpecificPeer(gossiper, routeMessage, luckyPeer)
-	    		makeTimer(gossiper, luckyPeer, routeMessage)
+
+	    		//updateStatusAndRumorMapsWhenReceivingClientMessage(routeMessage)
+
+	    		stateID := updateStatusAndRumorArray(routeMessage, true)
+
+	    		if(stateID != "present") {
+	    			fmt.Println("Error : state of route message is :", stateID)
+	    		}
+
+	    		sendRumorMsgToSpecificPeer(routeMessage, luckyPeer)
+	    		makeTimer(luckyPeer, routeMessage)
 	    	}
 		}
 	}
 }
 
 // Anti entropy process
-func antiEntropy(gossiper *Gossiper) {
+func antiEntropy() {
 	var ticker *time.Ticker
 	var luckyPeer string
 	ticker = time.NewTicker(time.Second)
@@ -89,14 +107,14 @@ func antiEntropy(gossiper *Gossiper) {
 			if(len(gossiper.Peers) > 0) {
 				rand.Seed(time.Now().UTC().UnixNano())
 	    		luckyPeer = gossiper.Peers[rand.Intn(len(gossiper.Peers))]
-	    		sendStatusMsgToSpecificPeer(gossiper, luckyPeer)
+	    		sendStatusMsgToSpecificPeer(luckyPeer)
 	    	}
 		}
 	}
 }
 
 // RumorMongering process
-func rumormongering(gossiper *Gossiper, rumorMessage RumorMessage, isRandom bool) {
+func rumormongering(rumorMessage RumorMessage, isRandom bool) {
 
 	rand.Seed(time.Now().UTC().UnixNano())
 
@@ -106,10 +124,14 @@ func rumormongering(gossiper *Gossiper, rumorMessage RumorMessage, isRandom bool
 
     luckyPeer := gossiper.Peers[rand.Intn(len(gossiper.Peers))]
 
-    if(isRandom) {
-    	//fmt.Println("FLIPPED COIN sending rumor to", luckyPeer)
+    if(rumorMessage.Text != "") {
+    	fmt.Println("sending", rumorMessage, "to", luckyPeer)
     }
 
-	sendRumorMsgToSpecificPeer(gossiper, rumorMessage, luckyPeer)
-	makeTimer(gossiper, luckyPeer, rumorMessage)
+    if(isRandom) {
+    	fmt.Println("FLIPPED COIN sending rumor to", luckyPeer)
+    }
+
+	sendRumorMsgToSpecificPeer(rumorMessage, luckyPeer)
+	makeTimer(luckyPeer, rumorMessage)
 }

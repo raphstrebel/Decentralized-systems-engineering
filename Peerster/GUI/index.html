@@ -12,7 +12,27 @@
 	<header class="title-row">
 		<h1>Gossiper</h1>
 	</header>
-
+	<main class="width-limited">
+		<div class="idBox">
+			<idBox id="idBoxID">
+				<h1>My ID :</h1>
+			</idBox>
+		</div>
+		<div class="FileRequestBox">
+			<FileRequestBox id="fileRequestBoxID">
+				<h1>Make File Request :</h1>
+			</FileRequestBox>
+			<textInsertions>
+				<input type="text" id="keywordsID" placeholder="Insert comma-separated keywords">
+			</textInsertions>
+			<textInsertions>
+				<input type="number" min="0" id="budgetID" placeholder="Insert budget">
+			</textInsertions>
+			<addNodeButton 
+				id="sendFileRequestButtonID" onclick="sendFileRequest()">Send Request
+			</addNodeButton>
+		</div>
+	</main>
 	<div id="privateChatboxID" class="privateChatbox">
 	  <div class="privateChatbox-content">
 	    <h1>Private Chatbox</h1>
@@ -27,14 +47,6 @@
 			<input type="text" id="fileNameID" placeholder="Insert new file name">
 	  </div>
 	</div>
-
-	<main class="width-limited">
-		<div class="idBox">
-			<idBox id="idBoxID">
-				<h1>My ID :</h1>
-			</idBox>
-		</div>
-	</main>
 	<main class="width-limited">
 		<div class="chatbox">
 			<chatbox id="chatboxID">

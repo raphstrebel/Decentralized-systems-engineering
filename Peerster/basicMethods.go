@@ -4,7 +4,7 @@ import(
 	"fmt"
 	"reflect"
 	"time"
-	"math/rand"
+	//"math/rand"
 	"net"
 	"strings"
 	"encoding/hex"
@@ -45,7 +45,7 @@ func bytesToHex(b []byte) string {
 }
 
 // Function to update the list of known peers of our gossiper
-func updatePeerList(gossiper *Gossiper, peerAddr string) {
+func updatePeerList(peerAddr string) {
 	if(!contains(gossiper.Peers, peerAddr)) {
 		gossiper.Peers = append(gossiper.Peers, peerAddr)
 		if(len(gossiper.Peers_as_single_string) != 0) {
@@ -60,7 +60,7 @@ func updatePeerList(gossiper *Gossiper, peerAddr string) {
 	This method also updates in our status packet the "next id" of the peer that we received this rumor from.
 	Returns a string : "past", "present", "future"
 */
-func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMessage bool) string {
+func updateStatusAndRumorArray(rumor RumorMessage, isRouteMessage bool) string {
 
 	// This is the first rumor we receive
 	if(gossiper.StatusPacket == nil) {
@@ -68,7 +68,7 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 			gossiper.SafeRumors.mux.Lock()
 			// add rumor to rumors from this origin
 			gossiper.SafeRumors.RumorMessages[rumor.Origin] = []RumorMessage{rumor}
-			if(!isRouteMessage) {
+			if(!isRouteMessage && rumor.Origin != gossiper.Name) {
 				gossiper.RumorMessages = []RumorMessage{rumor}
 			}
 			gossiper.StatusPacket = &StatusPacket{[]PeerStatus{PeerStatus{rumor.Origin, rumor.ID+1}}}
@@ -95,7 +95,7 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 				gossiper.SafeRumors.mux.Lock()
 				// store rumor in rumor array
 				gossiper.SafeRumors.RumorMessages[rumor.Origin] = append(gossiper.SafeRumors.RumorMessages[rumor.Origin], rumor)
-				if(!isRouteMessage) {
+				if(!isRouteMessage && rumor.Origin != gossiper.Name) {
 					gossiper.RumorMessages = append(gossiper.RumorMessages, rumor)
 				}
 				gossiper.SafeRumors.mux.Unlock()
@@ -114,7 +114,7 @@ func updateStatusAndRumorArray(gossiper *Gossiper, rumor RumorMessage, isRouteMe
 			gossiper.SafeRumors.mux.Lock()
 			gossiper.SafeRumors.RumorMessages[rumor.Origin] = append(gossiper.SafeRumors.RumorMessages[rumor.Origin], rumor)
 			gossiper.SafeRumors.mux.Unlock()
-			if(!isRouteMessage) {
+			if(!isRouteMessage && rumor.Origin != gossiper.Name) {
 				gossiper.RumorMessages = append(gossiper.RumorMessages, rumor)
 			}
 			return "present"
@@ -144,7 +144,7 @@ func getRumorFromArray(rumorArray []RumorMessage, id uint32) RumorMessage {
 	If there are some that the other peer has and we don't, we return (nil, status)
 	If we are in sync, we return nil, nil
 */
-func compareStatus(gossiper *Gossiper, otherPeerStatus []PeerStatus, peerAddress string) (*RumorMessage, *StatusPacket) {
+func compareStatus(otherPeerStatus []PeerStatus, peerAddress string) (*RumorMessage, *StatusPacket) {
 
 	var nilRumor *RumorMessage
 	var nilStatus *StatusPacket
@@ -247,7 +247,7 @@ func compareStatus(gossiper *Gossiper, otherPeerStatus []PeerStatus, peerAddress
 
 
 // This function makes a new timer and sets the timeout to ONE second. If the timer finishes it calls the method to remove the timer.
-func makeTimer(gossiper *Gossiper, peerAddress string, rumorMessage RumorMessage) {
+func makeTimer(peerAddress string, rumorMessage RumorMessage) {
 
 	respTimer := ResponseTimer{
 		Timer: time.NewTimer(time.Second), 
@@ -267,17 +267,17 @@ func makeTimer(gossiper *Gossiper, peerAddress string, rumorMessage RumorMessage
 	go func() {
 		<- respTimer.Timer.C
 
-		removeFinishedTimer(gossiper, peerAddress)
+		removeFinishedTimer(peerAddress)
 
-		if(rand.Int() % 2 == 0) {
-	        go rumormongering(gossiper, rumorMessage, true)
-	    }
+		/*if(rand.Int() % 2 == 0) {
+	        go rumormongering(rumorMessage, true)
+	    }*/
 	        		
 	}()
 }
 
 // This function makes a new timer and sets the timeout to 5 seconds. If the timer finishes it calls the method to remove the timer.
-func makeDataRequestTimer(gossiper *Gossiper, fileOrigin string, dataRequest DataRequest) {
+func makeDataRequestTimer(fileOrigin string, dataRequest DataRequest) {
 
 	dataRespTimer := ResponseTimer{
 		Timer: time.NewTimer(5*time.Second), 
@@ -297,17 +297,17 @@ func makeDataRequestTimer(gossiper *Gossiper, fileOrigin string, dataRequest Dat
 	go func() {
 		<- dataRespTimer.Timer.C
 
-		removeFinishedDataRequestTimer(gossiper, fileOrigin)
+		removeFinishedDataRequestTimer(fileOrigin)
 
 		// Send the request again
 		fmt.Println("TIMEOUT!")
-	    sendDataRequestToSpecificPeer(gossiper, dataRequest, getAddressFromRoutingTable(gossiper, fileOrigin))//gossiper.RoutingTable[fileOrigin])
-	    makeDataRequestTimer(gossiper, fileOrigin, dataRequest)	
+	    sendDataRequestToSpecificPeer(dataRequest, getAddressFromRoutingTable(fileOrigin))//gossiper.RoutingTable[fileOrigin])
+	    makeDataRequestTimer(fileOrigin, dataRequest)	
 	}()
 }
 
 // This method removes the oldest timer from the peer passed as argument
-func removeFinishedTimer(gossiper *Gossiper, peerAddress string) {
+func removeFinishedTimer(peerAddress string) {
 
 	gossiper.SafeTimers.mux.Lock()
 
@@ -323,7 +323,7 @@ func removeFinishedTimer(gossiper *Gossiper, peerAddress string) {
 	gossiper.SafeTimers.mux.Unlock()
 }
 
-func removeFinishedDataRequestTimer(gossiper *Gossiper, peerAddress string) {
+func removeFinishedDataRequestTimer(peerAddress string) {
 	gossiper.SafeDataRequestTimers.mux.Lock()
 
 	if(len(gossiper.SafeDataRequestTimers.ResponseTimers[peerAddress]) == 0) {
@@ -339,7 +339,7 @@ func removeFinishedDataRequestTimer(gossiper *Gossiper, peerAddress string) {
 }
 
 // This method returns true if the peer passed as argument is sending a status response, otherwise it returns false
-func isStatusResponse(gossiper *Gossiper, peerAddress string) bool {
+func isStatusResponse(peerAddress string) bool {
 
 	gossiper.SafeTimers.mux.Lock()
 	_, hasTimer := gossiper.SafeTimers.ResponseTimers[peerAddress]
@@ -355,7 +355,7 @@ func isStatusResponse(gossiper *Gossiper, peerAddress string) bool {
 	}	
 }
 
-func isDataResponse(gossiper *Gossiper, fileOrigin string) bool {
+func isDataResponse(fileOrigin string) bool {
 
 	gossiper.SafeDataRequestTimers.mux.Lock()
 	_, hasTimer := gossiper.SafeDataRequestTimers.ResponseTimers[fileOrigin]
@@ -372,7 +372,7 @@ func isDataResponse(gossiper *Gossiper, fileOrigin string) bool {
 }
 
 // Function to update the routing table of our gossiper
-func updateRoutingTable(gossiper *Gossiper, rumor RumorMessage, address string) bool {
+func updateRoutingTable(rumor RumorMessage, address string) bool {
 
 	tableUpdated := false
 
@@ -437,10 +437,11 @@ func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
 		},
 		LastRumorSentIndex: -1,
 		LastPrivateSentIndex: -1,
-		// to delete ? 
 		LastNodeSentIndex: -1,
 		SentCloseNodes: []string{},
-		NextClientMessageID: 1,
+		SafeNextClientMessageIDs: SafeNextClientMessageID{
+			NextClientMessageID: 1,
+		},
 		SafeRoutingTables: SafeRoutingTable{
 			RoutingTable: make(map[string]string),
 		},
@@ -458,10 +459,13 @@ func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
 		SafeRequestDestinationToFileAndIndexes: SafeRequestDestinationToFileAndIndex{
 			RequestDestinationToFileAndIndex: make(map[string][]FileAndIndex),
 		},
+		SafeMySearchRequests: SafeMySearchRequest{
+			SearchRequests: make(map[string]int),
+		},
 	}
 }
 
-func printStatusReceived(gossiper *Gossiper, peerStatus []PeerStatus, peerAddress string) {
+func printStatusReceived(peerStatus []PeerStatus, peerAddress string) {
 
 	//fmt.Print("STATUS from ", peerAddress, " ") 
 
@@ -476,7 +480,7 @@ func printStatusReceived(gossiper *Gossiper, peerStatus []PeerStatus, peerAddres
 	fmt.Println()*/
 }
 
-func getAddressFromRoutingTable(gossiper *Gossiper, dest string) string {
+func getAddressFromRoutingTable(dest string) string {
 
 	gossiper.SafeRoutingTables.mux.Lock()
 
