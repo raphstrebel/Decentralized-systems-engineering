@@ -160,6 +160,20 @@ func listenUIPort() {
 
 			keywords := strings.Split(keywordsAsString, ",")
 
+			gossiper.SafeSearchRequests.mux.Lock()
+			_,exists := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString]
+
+			if(!exists) {
+				gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString] = SearchRequestInformation{
+					Keywords: keywords,
+					NbOfMatches: 0,
+					KeywordToInfo: make(map[string][]FileAndChunkInformation),
+				}
+			} else {
+				fmt.Println("The same request was already made :", gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString])
+			}
+			gossiper.SafeSearchRequests.mux.Unlock()
+
 			// Send search request to up to "budget" neighbours :
 			nb_peers := uint64(len(gossiper.Peers))
 
@@ -179,7 +193,7 @@ func listenUIPort() {
 				if(budgetGiven) {
 					sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
 				} else {
-					sendPeriodicalSearchRequest(keywordsAsString, keywords, nb_peers)
+					sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
 				}
 			}
 		}
@@ -329,23 +343,6 @@ func listenGossipPort() {
 					
 					// check if hashValue is a metahash, if yes send the metafile
 					if(isMetaHash) {
-						//fmt.Println("THIS IS A METAHASH REQUEST")
-						metahash_hex := hashValue_hex
-
-						// add to map RequestOriginToFileAndIndex
-						gossiper.SafeRequestOriginToFileAndIndexes.mux.Lock()
-						filesBeingDownloaded, isDownloading := gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin]
-						
-						if(!isDownloading) {
-							gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin] = []FileAndIndex{}
-						}
-
-						gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin] = append(filesBeingDownloaded, FileAndIndex{
-							Metahash : metahash_hex,
-							NextIndex : 0,
-						})
-						gossiper.SafeRequestOriginToFileAndIndexes.mux.Unlock()
-
 						dataReply := DataReply{
 							Origin : gossiper.Name,
 							Destination : requestOrigin,
@@ -358,28 +355,13 @@ func listenGossipPort() {
 						sendDataReplyToSpecificPeer(dataReply, address)
 
 					} else {
-						//fmt.Println("THIS IS A CHUNK REQUEST")
-
-						// Check if we are already transmitting a file to the origin of the message, if not do nothing
-						//gossiper.SafeRequestOriginToFileAndIndexes.mux.Lock()
-						//filesBeingDownloaded, _ := gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin]
-						//gossiper.SafeRequestOriginToFileAndIndexes.mux.Unlock()
 						nextChunkHash := hashValue_hex
 						
-						//fmt.Println("We want the chunk hash :", nextChunkHash)
 						chunkToSend, fileIsIndexed, _ := checkFilesForNextChunk(requestOrigin, nextChunkHash)
 
 						var dataReply DataReply
 
 						if(fileIsIndexed) {
-								//fmt.Println("We have the file")
-								//fmt.Println("The hash of the data we are sending :", bytesToHex(computeHash(hexToBytes(chunkToSend))))
-								//fmt.Println("The data we are sending :", chunkToSend)
-
-								//gossiper.SafeRequestOriginToFileAndIndexes.mux.Lock()
-					            //gossiper.SafeRequestOriginToFileAndIndexes.RequestOriginToFileAndIndex[requestOrigin][index].NextIndex++
-					            //gossiper.SafeRequestOriginToFileAndIndexes.mux.Unlock()
-
 							dataReply = DataReply{
 								Origin : gossiper.Name,
 								Destination : requestOrigin,
@@ -388,7 +370,6 @@ func listenGossipPort() {
 								Data : hexToBytes(chunkToSend), // get i'th chunk
 							}
 						} else {
-							//fmt.Println("send empty data to show that we do not posses the file")
 							dataReply = DataReply{
 								Origin : gossiper.Name,
 								Destination : requestOrigin,
@@ -398,7 +379,6 @@ func listenGossipPort() {
 							}
 						}
 
-						//fmt.Println("Sending new chunk of hash :", nextChunkHash)
 						sendDataReplyToSpecificPeer(dataReply, address)
 					}
 				}
@@ -646,6 +626,7 @@ func main() {
 	ISSUES :
 		- if the number of matches of a request is >= to ? (nb of keywords or constant 2 ?) then stop augmenting
 		- Check if two keywords are the same ?
+		- When sending a search request, should we expect an answer ? Should we set a timeout ?
 
 	commented rand.Int() in main.go, messageHandler of frontendHandler.go and in makeTimer of basicMethods, to uncomment.
 	Should I erase the node requesting the file when I send him the last reply ? If yes after how much time

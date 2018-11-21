@@ -365,6 +365,21 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 
 	keywords := strings.Split(keywordsAsString, ",")
 
+	gossiper.SafeSearchRequests.mux.Lock()
+	_,exists := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString]
+
+	if(!exists) {
+		gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString] = SearchRequestInformation{
+			Keywords: keywords,
+			NbOfMatches: 0,
+			KeywordToInfo: make(map[string][]FileAndChunkInformation),
+		}
+	} else {
+		fmt.Println("The same request was already made :", gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString])
+	}
+
+	gossiper.SafeSearchRequests.mux.Unlock()
+
 	// Check if two keywords are the same ?
 
 
@@ -392,7 +407,7 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 	if(budgetGiven) {
 		sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
 	} else {
-		sendPeriodicalSearchRequest(keywordsAsString, keywords, nb_peers)
+		sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
 	}
 
 
@@ -404,35 +419,36 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 	}*/
 }
 
-func sendPeriodicalSearchRequest(keywordsAsString string, keywords []string, nb_peers uint64) {
+func sendPeriodicalSearchRequest(keywordsAsString string, nb_peers uint64) {
 	var budget uint64
 	budget = 2
 
-	gossiper.SafeMySearchRequests.mux.Lock()
-	gossiper.SafeMySearchRequests.SearchRequests[keywordsAsString] = 0
-	gossiper.SafeMySearchRequests.mux.Unlock()
-
-	// in gossiper, should make a map : requestedFileHash -> allChunksFound[]
+	// in gossiper, should make a map : requestedFileHash -> allChunksFound[] 
+	// and another keywordsasstring -> []requestedFileHash ?
 	// if the number of matches of a request is >= to ? (nb of keywords or constant 2 ?) then stop sending
 
-	go sendPeriodicalSearchRequestHelper(keywordsAsString, keywords, budget, nb_peers)
+	go sendPeriodicalSearchRequestHelper(keywordsAsString, budget, nb_peers)
 }
 
-func sendPeriodicalSearchRequestHelper(keywordsAsString string, keywords []string, budget uint64, nb_peers uint64) {
+func sendPeriodicalSearchRequestHelper(keywordsAsString string, budget uint64, nb_peers uint64) {
 	var ticker *time.Ticker
 	ticker = time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	//done := make(chan bool, 1)
 
 	for {
 		// while we do not reach a budget of MAX_BUDGET or a number of matches = len(keywords), send the request again every second
 		for range ticker.C {
 
-			gossiper.SafeMySearchRequests.mux.Lock()
-			nbMatches := gossiper.SafeMySearchRequests.SearchRequests[keywordsAsString]
-			gossiper.SafeMySearchRequests.mux.Unlock()
+			gossiper.SafeSearchRequests.mux.Lock()
+			keywords := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString].Keywords
+			nbMatches := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString].NbOfMatches
+			gossiper.SafeSearchRequests.mux.Unlock()
 
-			if(budget == MAX_BUDGET || nbMatches == len(keywords)) {
+			if(budget == MAX_BUDGET || nbMatches >= MIN_NUMBER_MATCHES) {
 				fmt.Println("STOPPING TICKER") // todelete
-				ticker.Stop()
+				//ticker.Stop()
 				return 
 			} else {
 				// send the search request 

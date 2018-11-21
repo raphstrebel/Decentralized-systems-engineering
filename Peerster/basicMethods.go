@@ -459,8 +459,9 @@ func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
 		SafeRequestDestinationToFileAndIndexes: SafeRequestDestinationToFileAndIndex{
 			RequestDestinationToFileAndIndex: make(map[string][]FileAndIndex),
 		},
-		SafeMySearchRequests: SafeMySearchRequest{
-			SearchRequests: make(map[string]int),
+		// map of keywords of request to array of files and chunk indeices of files received
+		SafeSearchRequests: SafeSearchRequest{
+			SearchRequestInfo: make(map[string]SearchRequestInformation),
 		},
 	}
 }

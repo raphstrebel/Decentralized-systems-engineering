@@ -12,6 +12,7 @@ const HASH_SIZE = 32
 const MAX_FILE_SIZE = 1024*8*256 // 2MB
 
 const MAX_BUDGET = 32
+const MIN_NUMBER_MATCHES = 2
 
 var gossiper *Gossiper
 
@@ -143,11 +144,14 @@ type Gossiper struct {
 	SafeRequestOriginToFileAndIndexes SafeRequestOriginToFileAndIndex
 	SafeRequestDestinationToFileAndIndexes SafeRequestDestinationToFileAndIndex
 	// map : "keywords" -> number of matches
-	SafeMySearchRequests SafeMySearchRequest
+	//SafeMySearchRequestsToNbOfMatches SafeSearchRequestsToNbOfMatches
+	// map : "keywords" -> []FilesAndChunksInfo to find the chunks of the keyword search
+	SafeSearchRequests SafeSearchRequest
+	//SafeKeywordToFilesAndChunksInfo SafeKeywordToFilesAndChunksInformation
 }
 
-type SafeMySearchRequest struct {
-	SearchRequests map[string]int
+type SafeSearchRequestsToNbOfMatches struct {
+	SearchRequestsToNbOfMatches map[string]int
 	mux sync.Mutex
 }
 
@@ -207,4 +211,24 @@ type File struct {
     Size int
     Metafile string
     Metahash string
+}
+
+type SafeSearchRequest struct {
+	// keywordsAsString -> all info on this request
+	SearchRequestInfo map[string]SearchRequestInformation
+	mux sync.Mutex
+}
+
+type SearchRequestInformation struct {
+	Keywords []string
+	NbOfMatches uint32
+	KeywordToInfo map[string][]FileAndChunkInformation
+}
+
+type FileAndChunkInformation struct {
+	Filename string
+	Metahash string
+	Metafile string
+	NbOfChunks uint64
+	ChunkOriginToIndices map[string][]uint64
 }
