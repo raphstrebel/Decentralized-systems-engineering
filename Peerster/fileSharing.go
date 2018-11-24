@@ -11,6 +11,12 @@ import(
     "regexp"
 )
 
+func getNbChunksFromMetafile(metafile string) uint64 {
+    re := regexp.MustCompile(`[a-f0-9]{64}`)
+    metafileArray := re.FindAllString(metafile, -1) // split metafile into array of 64 char chunks
+    return uint64(len(metafileArray))
+}
+
 func createEmptyFile(filename string) {
     _, err := os.Stat("Peerster/_SharedFiles/" + filename)
 
@@ -68,6 +74,21 @@ func computeHash(b []byte) []byte {
     return h.Sum(nil)
 }
 
+func getChunkMap(file File) []uint64 {
+    var chunkMap []uint64
+
+    // If we don't even have the first chunk
+    if(file.NextIndex == -1 || file.NextIndex == 0) {
+        return chunkMap
+    } 
+
+    for i := 0; i < file.NextIndex; i++ {
+        chunkMap = append(chunkMap, uint64(i))
+    }
+
+    return chunkMap
+}
+
 // return next chunk, found (boolean), metahash
 //func checkFilesForNextChunk(gossiper *Gossiper, filesBeingDownloaded []FileAndIndex, origin string, nextChunkHash string) ([]byte, bool, string) {
 func checkFilesForNextChunk(origin string, nextChunkHash string) (string, bool, string) {
@@ -103,60 +124,6 @@ func checkFilesForNextChunk(origin string, nextChunkHash string) (string, bool, 
     return chunk, false, ""
 
 }
-
-
-
-
-
-
-    /*
-
-    for i, fileAndIndex := range filesBeingDownloaded {
-
-        f := gossiper.SafeIndexedFiles.IndexedFiles[fileAndIndex.Metahash]
-
-
-
-        //fmt.Println("We are at index :", fileAndIndex.NextIndex)
-
-        j := 0
-        k := 0
-
-        for j < f.Size {
-            chunk = getChunkByIndex(f.Name, k)
-            chunk_hash_hex := bytesToHex(computeHash(chunk))
-
-            fmt.Println("The two hashes compared :", chunk_hash_hex, " and ", nextChunkHash)
-
-            if(chunk_hash_hex == nextChunkHash) {
-                fmt.Println("EQUAL")
-                gossiper.SafeIndexedFiles.mux.Unlock()
-                return chunk, true, i
-            }
-
-
-            j += CHUNK_SIZE
-            k++
-        }
-
-
-        /* must loop over all past indices also
-        for j := 0; j < fileAndIndex.NextIndex+1; j++ {
-            chunk = getChunkByIndex(f.Name, fileAndIndex.NextIndex)
-            chunk_hash_hex := bytesToHex(computeHash(chunk))
-
-            fmt.Println("The two hashes compared :", chunk_hash_hex, " and ", nextChunkHash)
-
-            if(chunk_hash_hex == nextChunkHash) {
-                fmt.Println("EQUAL")
-                gossiper.SafeIndexedFiles.mux.Unlock()
-                return chunk, true, i
-            }
-        }
-    }
-    gossiper.SafeIndexedFiles.mux.Unlock()
-    return chunk, false, -1
-    }*/
 
 // returns index of file, isMetafile, nextChunkHash, isLastChunk
 func getNextChunkHashToRequest(fileOrigin string, hashValue string) (int, bool, string, bool) {
@@ -284,12 +251,18 @@ func getChunkByIndex(filename string, index int) []byte {
 
 func computeFileIndices(filename string) File {
     // Should we initialize the rest of the fields with make([]byte, ...) ? 
-    f := File{Name: filename}
+    var f File
 
     // Load file
     file, err := os.Open("Peerster/_SharedFiles/" + filename)
     isError(err)
     defer file.Close()
+
+    if(err != nil) {
+        return f
+    }
+
+    f = File{Name: filename}
 
     // Get file length
     fileStat, err := file.Stat()
@@ -349,6 +322,8 @@ func computeFileIndices(filename string) File {
     metahash := h.Sum(nil)
 
     f.Metahash = bytesToHex(metahash)
+    f.NextIndex = -1
+    f.Done = false
 
     return f
 }

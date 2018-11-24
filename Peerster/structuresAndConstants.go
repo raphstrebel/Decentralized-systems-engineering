@@ -141,13 +141,20 @@ type Gossiper struct {
 	SafeRoutingTables SafeRoutingTable
 	SafeIndexedFiles SafeIndexedFile
 	SafeDataRequestTimers SafeTimer
-	SafeRequestOriginToFileAndIndexes SafeRequestOriginToFileAndIndex
 	SafeRequestDestinationToFileAndIndexes SafeRequestDestinationToFileAndIndex
-	// map : "keywords" -> number of matches
-	//SafeMySearchRequestsToNbOfMatches SafeSearchRequestsToNbOfMatches
 	// map : "keywords" -> []FilesAndChunksInfo to find the chunks of the keyword search
 	SafeSearchRequests SafeSearchRequest
-	//SafeKeywordToFilesAndChunksInfo SafeKeywordToFilesAndChunksInformation
+	// Used for keeping track of requests in the last 0.5 seconds
+	SafeOriginAndKeywords SafeOriginAndKeyword
+	// Idea : make map of keyword to []fileandchunkInfo, nbOfMatches
+	SafeKeywordToInfo SafeKeywordToInformation
+	// map of metahash to metafile that are being requested
+	SafeAwaitingRequestsMetahash SafeAwaitingRequestMetahash
+}
+
+type SafeAwaitingRequestMetahash struct {
+	AwaitingRequestsMetahash map[string]string
+	mux sync.Mutex
 }
 
 type SafeSearchRequestsToNbOfMatches struct {
@@ -172,12 +179,8 @@ type SafeRequestDestinationToFileAndIndex struct {
 	mux sync.Mutex
 }
 
-type SafeRequestOriginToFileAndIndex struct {
-	RequestOriginToFileAndIndex map[string][]FileAndIndex
-	mux sync.Mutex
-}
-
 type SafeIndexedFile struct {
+	// map of metahash as hexadecimal string to file
 	IndexedFiles map[string]File
 	mux sync.Mutex
 }
@@ -211,6 +214,8 @@ type File struct {
     Size int
     Metafile string
     Metahash string
+    NextIndex int
+    Done bool
 }
 
 type SafeSearchRequest struct {
@@ -222,13 +227,36 @@ type SafeSearchRequest struct {
 type SearchRequestInformation struct {
 	Keywords []string
 	NbOfMatches uint32
-	KeywordToInfo map[string][]FileAndChunkInformation
+	BudgetIsGiven bool
+	AlreadyShown bool
 }
 
 type FileAndChunkInformation struct {
+	// do we need an array of filenames ? otherwise we keep the filename of the first response we get
 	Filename string
 	Metahash string
 	Metafile string
 	NbOfChunks uint64
+	FoundAllChunks bool
 	ChunkOriginToIndices map[string][]uint64
+}
+
+type SafeOriginAndKeyword struct {
+	OriginAndKeywords map[OriginAndKeywordsStruct]bool
+	mux sync.Mutex
+}
+
+type OriginAndKeywordsStruct struct {
+	Origin string
+	Keywords string
+}
+
+type FileChunkInfoAndNbMatches struct {
+	FilesAndChunksInfo []FileAndChunkInformation
+	NbOfMatches uint32
+}
+
+type SafeKeywordToInformation struct {
+	KeywordToInfo map[string]FileChunkInfoAndNbMatches
+	mux sync.Mutex
 }

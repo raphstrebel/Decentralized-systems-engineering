@@ -25,6 +25,74 @@ func contains(array []string, s string) bool {
 	return false
 }
 
+func containsUint64(m map[string][]uint64, u uint64) bool {
+	for _, array := range m {
+		for _, elem := range array {
+			if u == elem {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func getNbTotalChunks(m map[string][]uint64) uint64 {
+	var res uint64
+	res = 0
+
+	for _, array := range m {
+		for range array {
+			res++
+		}
+	}
+
+	return res
+
+}
+
+func containsFileMetahash(array []FileAndChunkInformation, s string) (bool, int) {
+	for i, file := range array {
+		if s == file.Metahash {
+			return true, i
+		}
+	}
+	return false, -1
+}
+
+func deleteFromArray(array []string, elem string) []string {
+	var toReturn []string
+
+	if(len(array) == 0) {
+		return toReturn
+	}
+
+	for i,e := range array {
+		if(e == elem) {
+			toReturn = append(array[:i], array[i+1:]...)
+		}
+	}
+
+	return toReturn
+}
+
+func getKeywordsAsString(keywords []string) string {
+	var s string
+	if(len(keywords) == 0) {
+		return ""
+	} else if(len(keywords) == 1) {
+		return keywords[0]
+	}
+
+	s = keywords[0]
+
+	for _,k := range keywords[1:] {
+		s = s + "," + k
+	}
+
+	return s
+}
+
 func getIndexOfFileAndIndex(array []FileAndIndex, metahash string) int {
 	for i, elem := range array {
 		if metahash == elem.Metahash {
@@ -451,17 +519,19 @@ func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
 		SafeDataRequestTimers: SafeTimer{
 			ResponseTimers: make(map[string][]ResponseTimer),
 		},
-		// map of origin of requests to files they are requesting
-		SafeRequestOriginToFileAndIndexes: SafeRequestOriginToFileAndIndex{
-			RequestOriginToFileAndIndex: make(map[string][]FileAndIndex),
-		},
 		// map of origin of files to files I am requesting
 		SafeRequestDestinationToFileAndIndexes: SafeRequestDestinationToFileAndIndex{
 			RequestDestinationToFileAndIndex: make(map[string][]FileAndIndex),
 		},
-		// map of keywords of request to array of files and chunk indeices of files received
+		// map of keywords of request to array of files and chunk indices of files received (needed to check when we received 2 or more requests)
 		SafeSearchRequests: SafeSearchRequest{
 			SearchRequestInfo: make(map[string]SearchRequestInformation),
+		},
+		SafeOriginAndKeywords : SafeOriginAndKeyword{
+			OriginAndKeywords: make(map[OriginAndKeywordsStruct]bool),
+		},
+		SafeKeywordToInfo : SafeKeywordToInformation{
+			KeywordToInfo: make(map[string]FileChunkInfoAndNbMatches),
 		},
 	}
 }

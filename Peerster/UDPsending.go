@@ -58,6 +58,12 @@ func sendSearchRequestToSpecificPeer(searchRequest SearchRequest, address string
 	sendPacketToSpecificPeer(packet, address)
 }
 
+func sendSearchReplyToSpecificPeer(searchReply SearchReply, address string) {
+	// Encode message
+	packet := GossipPacket{SearchReply: &searchReply}
+	sendPacketToSpecificPeer(packet, address)
+}
+
 func generatePeriodicalRouteMessage(rtimer int) {
 	var ticker *time.Ticker
 	var luckyPeer string

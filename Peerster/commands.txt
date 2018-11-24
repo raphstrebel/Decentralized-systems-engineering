@@ -1,5 +1,11 @@
 go run ./client -UIPort=10001 -dest="raphael" -file="otherSomeFil2e.txt" -request="a0c4d8e01cdd3ef871d561833456cd7ac2688cfabc62dd13c3cccff31c0a5b64"
 
+go run ./client -UIPort=10001 -keywords="a" -budget=0
+
 go run ./Peerster -UIPort=10000 -gossipAddr=127.0.0.1:5000 -peers=127.0.0.1:5001 -name=raphael -rtimer=3
 
-go run ./Peerster -UIPort=10001 -gossipAddr=127.0.0.1:5001 -peers=127.0.0.1:5000 -name=maxime -rtimer=3
+go run ./Peerster -UIPort=10001 -gossipAddr=127.0.0.1:5001 -peers=127.0.0.1:5002 -name=maxime -rtimer=3
+
+go run ./Peerster -UIPort=10002 -gossipAddr=127.0.0.1:5002 -peers=127.0.0.1:5003 -name=joao -rtimer=3
+
+go run ./Peerster -UIPort=10003 -gossipAddr=127.0.0.1:5003 -peers=127.0.0.1:5002 -name=strebel -rtimer=3
