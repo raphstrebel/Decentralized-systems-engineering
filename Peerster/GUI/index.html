@@ -18,6 +18,31 @@
 				<h1>My ID :</h1>
 			</idBox>
 		</div>
+		<div class="nodeBox">
+			<nodeBox id="nodeBoxID">
+				<h1>Peers :</h1>
+				<div class="width-limited">
+				<addNodeButton 
+					id="addNodeButtonID" onclick="sendNode()">Add Node 
+				</addNodeButton>
+				</div>
+				<input type="text" id="newNodeID" placeholder="New node">
+			</nodeBox>
+		</div>	
+
+		<div class="closeNodesBox">
+			<closeNodesBox id="closeNodesBoxID">
+				<h1>Close Nodes :</h1>
+			</closeNodesBox>
+		</div>
+
+		<div class="privateChatbox">
+			<privateChatbox id="privateChatboxID">
+				<h1>Private Chatbox :</h1>
+			</privateChatbox>
+		</div>
+	</main>
+	<main class="width-limited">
 		<div class="FileRequestBox">
 			<FileRequestBox id="fileRequestBoxID">
 				<h1>Make File Request :</h1>
@@ -31,6 +56,11 @@
 			<addNodeButton 
 				id="sendFileRequestButtonID" onclick="sendFileRequest()">Send Request
 			</addNodeButton>
+		</div>
+		<div class="FileMatchesBox">
+			<FileMatchesBox id="fileMatchesBoxID">
+				<h1>File Matches :</h1>
+			</FileMatchesBox>
 		</div>
 	</main>
 	<div id="privateChatboxID" class="privateChatbox">
@@ -69,34 +99,6 @@
 				</shareFileButton>
 			</div>
 		</div>
-
-
-	</main>
-	<main class="width-limited">
-		<div class="nodeBox">
-			<nodeBox id="nodeBoxID">
-				<h1>Peers :</h1>
-				<div class="width-limited">
-				<addNodeButton 
-					id="addNodeButtonID" onclick="sendNode()">Add Node 
-				</addNodeButton>
-				</div>
-				<input type="text" id="newNodeID" placeholder="New node">
-			</nodeBox>
-		</div>	
-
-		<div class="closeNodesBox">
-			<closeNodesBox id="closeNodesBoxID">
-				<h1>Close Nodes :</h1>
-			</closeNodesBox>
-		</div>
-
-		<div class="privateChatbox">
-			<privateChatbox id="privateChatboxID">
-				<h1>Private Chatbox :</h1>
-			</privateChatbox>
-		</div>
-	</main>
 	<footer></footer>
 </body>
 </html>

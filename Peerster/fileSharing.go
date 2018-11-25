@@ -79,6 +79,7 @@ func getChunkMap(file File) []uint64 {
 
     // If we don't even have the first chunk
     if(file.NextIndex == -1 || file.NextIndex == 0) {
+        fmt.Println("Next index of file is -1 or 0")
         return chunkMap
     } 
 
@@ -90,7 +91,6 @@ func getChunkMap(file File) []uint64 {
 }
 
 // return next chunk, found (boolean), metahash
-//func checkFilesForNextChunk(gossiper *Gossiper, filesBeingDownloaded []FileAndIndex, origin string, nextChunkHash string) ([]byte, bool, string) {
 func checkFilesForNextChunk(origin string, nextChunkHash string) (string, bool, string) {
     var chunk string
 
@@ -122,7 +122,6 @@ func checkFilesForNextChunk(origin string, nextChunkHash string) (string, bool, 
 
     gossiper.SafeIndexedFiles.mux.Unlock()
     return chunk, false, ""
-
 }
 
 // returns index of file, isMetafile, nextChunkHash, isLastChunk
@@ -249,7 +248,7 @@ func getChunkByIndex(filename string, index int) []byte {
 
 }
 
-func computeFileIndices(filename string) File {
+func computeFileIndices(filename string, gotEntireFile bool) File {
     // Should we initialize the rest of the fields with make([]byte, ...) ? 
     var f File
 
@@ -322,8 +321,14 @@ func computeFileIndices(filename string) File {
     metahash := h.Sum(nil)
 
     f.Metahash = bytesToHex(metahash)
-    f.NextIndex = -1
-    f.Done = false
+
+    if(gotEntireFile) {
+        f.NextIndex = int(getNbChunksFromMetafile(f.Metafile))
+        f.Done = true
+    } else {
+        f.NextIndex = -1
+        f.Done = false
+    }
 
     return f
 }

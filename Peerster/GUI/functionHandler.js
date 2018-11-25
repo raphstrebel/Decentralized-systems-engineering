@@ -12,6 +12,10 @@ var myID = -1;
 var private_messages_origins = [];
 var private_messages_texts = [];
 var last_priv_msg_shown_id = -1;
+var all_matches_filenames = [];
+var all_matches_metahashes = [];
+var last_shown_match = -1;
+
 
 // Fetch the Peer ID
 function getMyID() {
@@ -89,6 +93,50 @@ function getNewPrivateMessages() {
 	;}) ()
 }
 
+// Periodically send GET to server and update matches list if necessary
+function getNewMatches() {
+	(function() {$.getJSON(
+	 	SERVER_ADDRESS + "/fileSearching",
+		function(json) {
+			new_match_string = JSON.stringify(json);
+			new_matches = JSON.parse(new_match_string);
+
+			new_matches.Filename.map(x => all_matches_filenames.push(x));
+			new_matches.Metahash.map(x => all_matches_metahashes.push(x));
+			showMatches();
+	}
+	)
+	;}) ()
+}
+
+// Periodically send GET to server and update matches list if necessary
+function sendFileMatchRequest(filename) {
+	const metahash = getMetahashFromFilename(filename);
+
+	console.log(filename);
+	console.log(metahash);
+
+	if(metahash != "" && filename != "") {
+		// Send filepath to server :	
+		$.ajax({
+		  type: "POST",
+		  url: SERVER_ADDRESS + '/fileSearching', 
+		  data: {FileName: filename, Metahash: metahash, Update: "get"},
+		  dataType: 'jsonp'
+		});
+	}	
+}
+
+function getMetahashFromFilename(filename) {
+	var i;
+	for(i = 0; i <= last_shown_match; i++){
+		if(all_matches_filenames[i] === filename) {
+			console.log("Found file :" + all_matches_metahashes[i]);
+			return all_matches_metahashes[i];
+		}
+	}
+}
+
 function sendMessage() {
 	const messageInput = document.getElementById('newMessageID');
 
@@ -160,7 +208,6 @@ function sendNodeFileRequest() {
 		  data: {FileName: fileName.value, Destination: privateNode, Metahash: metahash.value},
 		  dataType: 'jsonp'
 		});
-
 	}	
 }
 
@@ -177,7 +224,7 @@ function sendFileRequest() {
 		$.ajax({
 		  type: "POST",
 		  url: SERVER_ADDRESS + '/fileSearching', 
-		  data: {Keywords: keywords, Budget: budgetToSend},
+		  data: {Keywords: keywords, Budget: budgetToSend, Update: "yes"},
 		  dataType: 'jsonp'
 		});
 	}
@@ -225,6 +272,16 @@ function showPrivateMessages() {
 			last_priv_msg_shown_id++;
 		}
 	});
+}
+
+function showMatches() {
+	all_matches_filenames.forEach((m, index) => {
+		if(index > last_shown_match) {
+			addNewMatch(m);
+			last_shown_match++;
+		}
+	});
+
 }
 
 // Adds message "message" to the list of messages in the chatbox
@@ -276,6 +333,32 @@ function addPrivateMessage(message, origin) {
 	container_element.appendChild(paragraph);
 }
 
+function addNewMatch(match) {
+	var button = document.createElement('downloadFileButton');
+	const privateChat = document.getElementById('privateChatboxID');
+	button.textContent = "Download";
+	button.setAttribute("ID", match);
+
+	const paragraph = document.createElement('li');
+	paragraph.textContent = match;
+
+	button.onclick = function(){
+		console.log("Request Download !" + button.getAttribute("ID"));
+		sendFileMatchRequest(button.getAttribute("ID"));
+		
+
+		// TODO
+	
+
+
+
+	}
+
+	container_element = document.getElementById('fileMatchesBoxID');
+	container_element.appendChild(paragraph);
+	container_element.appendChild(button);
+}
+
 function shareFile() {
 	var filename = getFileName(document.getElementById("fileID"));
 
@@ -319,6 +402,7 @@ window.onload = function() {
 		getNewNodes(); 
 		getNewCloseNodes();
 		getNewPrivateMessages();
+		getNewMatches();
 	}, 3000);
 };
 

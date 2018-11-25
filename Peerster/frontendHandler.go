@@ -19,6 +19,8 @@ func IDHandler(w http.ResponseWriter, r *http.Request) {
 	gossiper.LastPrivateSentIndex = -1
 	gossiper.LastNodeSentIndex = -1
 	gossiper.SentCloseNodes = []string{}
+	gossiper.LastNodeSentIndex = -1
+	gossiper.LastMatchSentIndex = -1
 
 
 	payload, err := json.MarshalJSON()
@@ -169,14 +171,13 @@ func NodeHandler(w http.ResponseWriter, r *http.Request) {
 
 	if(r.FormValue("Update") == "") { // Send nodes to frontend
         json := simplejson.New()
-	    nodeArray := []string{}
 	    nb_peers := len(gossiper.Peers)
 
 	    if(nb_peers-1 <= gossiper.LastNodeSentIndex) {
 	    	return
 	    }
 
-	    nodeArray = []string{}
+	    nodeArray := []string{}
 
 	    for i := gossiper.LastNodeSentIndex + 1; i < nb_peers; i++ {
 	    	nodeArray = append(nodeArray, gossiper.Peers[i])
@@ -265,7 +266,7 @@ func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
 
 	if(r.FormValue("Update") != "") {
         filename := r.FormValue("FileName")
-        file := computeFileIndices(filename)
+        file := computeFileIndices(filename, true)
 
         fmt.Println("Metahash of file indexed is :", file.Metahash)
 		fmt.Println("Metafile of file indexed is :", file.Metafile)
@@ -350,75 +351,124 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 
 	//fmt.Println("File search request :", r.FormValue("Keywords"), " with budget :", r.FormValue("Budget"))
 
-	if(receivedBudget == "") {
-		budgetGiven = false
-		budget = 2
-	} else {
-		i, err := strconv.Atoi(receivedBudget)
+	if(r.FormValue("Update") == "") { // client wants to get new matches
+		// Just to test TODELETE
+
+		/*if(gossiper.LastMatchSentIndex == -1) {
+			gossiper.AllMatches = append(gossiper.AllMatches, MatchNameAndMetahash{
+			Filename: "file.txt",
+			Metahash: "abcdef",
+			})
+			gossiper.AllMatches = append(gossiper.AllMatches, MatchNameAndMetahash{
+				Filename: "file2.mp3",
+				Metahash: "fdasfdsa",
+			})
+		}*/
+
+		json := simplejson.New()
+	    matcheNamesArray := []string{}
+	    matcheMetahashArray := []string{}
+	    nbMatches := len(gossiper.AllMatches)
+
+	    if(nbMatches-1 <= gossiper.LastMatchSentIndex) {
+	    	return
+	    }
+
+	    for i := gossiper.LastMatchSentIndex + 1; i < nbMatches; i++ {
+	    	matcheNamesArray = append(matcheNamesArray, gossiper.AllMatches[i].Filename)
+	    	matcheMetahashArray = append(matcheMetahashArray, gossiper.AllMatches[i].Metahash)
+	    }
+
+	    gossiper.LastMatchSentIndex = nbMatches - 1
+
+	    json.Set("Filename", matcheNamesArray)
+		json.Set("Metahash", matcheMetahashArray)
+
+		payload, err := json.MarshalJSON()
 		isError(err)
 
-		budget = uint64(i)
-	}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(payload)
+	} else if(r.FormValue("Update") == "get"){
 
-	keywords := strings.Split(keywordsAsString, ",")
+		fmt.Println("RECEIVED FILE TO DOWNLOAD REQUEST :", r.FormValue("FileName"), r.FormValue("Metahash"))
 
-	gossiper.SafeSearchRequests.mux.Lock()
-	_,exists := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString]
+		// Now request the download the whole file with help of the map[origin]->chunk
+		downloadFileWithMetahash(r.FormValue("FileName"), r.FormValue("Metahash"))
+	} else {
 
-	if(!exists) {
-		gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString] = SearchRequestInformation{
-			Keywords: keywords,
-			NbOfMatches: 0,
-			BudgetIsGiven: budgetGiven,
-			//KeywordToInfo: make(map[string][]FileAndChunkInformation),
+		fmt.Println("RECEIVED FILE TO SEARCH REQUEST", r.FormValue("Update"))
+
+		if(receivedBudget == "") {
+			budgetGiven = false
+			budget = 2
+		} else {
+			i, err := strconv.Atoi(receivedBudget)
+			isError(err)
+
+			budget = uint64(i)
 		}
 
-		gossiper.SafeSearchRequests.mux.Unlock()
+		keywords := strings.Split(keywordsAsString, ",")
 
-		// Initialize the yet not seen keywords
-		gossiper.SafeKeywordToInfo.mux.Lock()
+		gossiper.SafeSearchRequests.mux.Lock()
+		_,exists := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString]
 
-		for _, keyword := range keywords {
-			_, alreadyExists := gossiper.SafeKeywordToInfo.KeywordToInfo[keyword]
-					
-			if(!alreadyExists) {
-				gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = FileChunkInfoAndNbMatches {
-					FilesAndChunksInfo: []FileAndChunkInformation{},
-					NbOfMatches: 0,
+		if(!exists) {
+			gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString] = SearchRequestInformation{
+				Keywords: keywords,
+				NbOfMatches: 0,
+				BudgetIsGiven: budgetGiven,
+				//KeywordToInfo: make(map[string][]FileAndChunkInformation),
+			}
+
+			gossiper.SafeSearchRequests.mux.Unlock()
+
+			// Initialize the yet not seen keywords
+			gossiper.SafeKeywordToInfo.mux.Lock()
+
+			for _, keyword := range keywords {
+				_, alreadyExists := gossiper.SafeKeywordToInfo.KeywordToInfo[keyword]
+						
+				if(!alreadyExists) {
+					gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = FileChunkInfoAndNbMatches {
+						FilesAndChunksInfo: []FileAndChunkInformation{},
+						NbOfMatches: 0,
+					}
 				}
 			}
-		}
-		
-		gossiper.SafeKeywordToInfo.mux.Unlock()
+			
+			gossiper.SafeKeywordToInfo.mux.Unlock()
 
-		// Send search request to up to "budget" neighbours :
-		nb_peers := uint64(len(gossiper.Peers))
+			// Send search request to up to "budget" neighbours :
+			nb_peers := uint64(len(gossiper.Peers))
 
-		if(nb_peers == 0) {
-			fmt.Println("No peers")
-			return 
-		}
+			if(nb_peers == 0) {
+				fmt.Println("No peers")
+				return 
+			}
 
-		// send to all peers by setting a budget as evenly distributed as possible
-		budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
+			// send to all peers by setting a budget as evenly distributed as possible
+			budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
 
-		fmt.Println("All peers get budget :", budgetForAll, "some peers have increased budget :", nbPeersWithBudgetIncreased)
+			fmt.Println("All peers get budget :", budgetForAll, "some peers have increased budget :", nbPeersWithBudgetIncreased)
 
-		total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
-		
-		// Sanity check
-		if(total != budget) {
-			fmt.Println("ERROR : the total budget allocated and the total budget received is not the same :", total, " != ", budget)
-		}
+			total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
+			
+			// Sanity check
+			if(total != budget) {
+				fmt.Println("ERROR : the total budget allocated and the total budget received is not the same :", total, " != ", budget)
+			}
 
-		if(budgetGiven) {
-			sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
+			if(budgetGiven) {
+				sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
+			} else {
+				sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
+			}
+
 		} else {
-			sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
+			gossiper.SafeSearchRequests.mux.Unlock()
+			fmt.Println("The same request was already made :", gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString])
 		}
-
-	} else {
-		gossiper.SafeSearchRequests.mux.Unlock()
-		fmt.Println("The same request was already made :", gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString])
 	}
 }

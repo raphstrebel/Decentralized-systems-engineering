@@ -10,6 +10,7 @@ const CHUNK_SIZE = 1024*8
 const UDP_PACKET_SIZE = 10000
 const HASH_SIZE = 32
 const MAX_FILE_SIZE = 1024*8*256 // 2MB
+const CHUNK_HASH_SIZE_IN_HEXA = 64
 
 const MAX_BUDGET = 32
 const MIN_NUMBER_MATCHES = 2
@@ -137,6 +138,8 @@ type Gossiper struct {
 	LastPrivateSentIndex int
 	LastNodeSentIndex int 
 	SentCloseNodes []string
+	AllMatches []MatchNameAndMetahash
+	LastMatchSentIndex int
 	SafeNextClientMessageIDs SafeNextClientMessageID
 	SafeRoutingTables SafeRoutingTable
 	SafeIndexedFiles SafeIndexedFile
@@ -152,7 +155,13 @@ type Gossiper struct {
 	SafeAwaitingRequestsMetahash SafeAwaitingRequestMetahash
 }
 
+type MatchNameAndMetahash struct {
+	Filename string
+	Metahash string
+}
+
 type SafeAwaitingRequestMetahash struct {
+	// metahash as hex to metafile as hex
 	AwaitingRequestsMetahash map[string]string
 	mux sync.Mutex
 }
@@ -238,6 +247,7 @@ type FileAndChunkInformation struct {
 	Metafile string
 	NbOfChunks uint64
 	FoundAllChunks bool
+	AlreadyShown bool
 	ChunkOriginToIndices map[string][]uint64
 }
 
@@ -252,6 +262,7 @@ type OriginAndKeywordsStruct struct {
 }
 
 type FileChunkInfoAndNbMatches struct {
+	// Should maybe change this into pointers, so that one file info is saved only once
 	FilesAndChunksInfo []FileAndChunkInformation
 	NbOfMatches uint32
 }

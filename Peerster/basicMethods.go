@@ -25,6 +25,15 @@ func contains(array []string, s string) bool {
 	return false
 }
 
+func containsUint64InArray(array []uint64, s uint64) bool {
+	for _, elem := range array {
+		if s == elem {
+			return true
+		}
+	}
+	return false
+}
+
 func containsUint64(m map[string][]uint64, u uint64) bool {
 	for _, array := range m {
 		for _, elem := range array {
@@ -37,7 +46,7 @@ func containsUint64(m map[string][]uint64, u uint64) bool {
 	return false
 }
 
-func getNbTotalChunks(m map[string][]uint64) uint64 {
+func getNbTotalChunksOfMap(m map[string][]uint64) uint64 {
 	var res uint64
 	res = 0
 
@@ -507,6 +516,8 @@ func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
 		LastPrivateSentIndex: -1,
 		LastNodeSentIndex: -1,
 		SentCloseNodes: []string{},
+		AllMatches: []MatchNameAndMetahash{},
+		LastMatchSentIndex: -1,
 		SafeNextClientMessageIDs: SafeNextClientMessageID{
 			NextClientMessageID: 1,
 		},
@@ -532,6 +543,9 @@ func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
 		},
 		SafeKeywordToInfo : SafeKeywordToInformation{
 			KeywordToInfo: make(map[string]FileChunkInfoAndNbMatches),
+		},
+		SafeAwaitingRequestsMetahash : SafeAwaitingRequestMetahash {
+			AwaitingRequestsMetahash: make(map[string]string),
 		},
 	}
 }

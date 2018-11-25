@@ -197,6 +197,11 @@ func setSearchRequestTimer(originAndKeyword OriginAndKeywordsStruct) {
 
 
 func getDistributionOfBudget(budget uint64, nb_peers uint64) (uint64, uint64) {
+	
+	if(nb_peers == 0) {
+		return 0,0
+	} 
+
 	divResult := float64(budget)/float64(nb_peers)
 	allPeersMinBudget := math.Floor(divResult)
 	//nbPeersWithBudgetIncreased := math.Round((divResult - float64(allPeersMinBudget)) * float64(nb_peers))
@@ -218,6 +223,130 @@ func getFilesWithMatchingFilenames(keyword string) []File {
 	}
 
 	return matchingFiles
+}
+
+
+func downloadFileWithMetahash(filename string, metahash string) {
+	gossiper.SafeKeywordToInfo.mux.Lock()
+	allKeywordsToInfo := gossiper.SafeKeywordToInfo.KeywordToInfo
+	gossiper.SafeKeywordToInfo.mux.Unlock()
+
+	fmt.Println(allKeywordsToInfo)
+
+	for _, fileInfoAndNbMatches := range allKeywordsToInfo {
+		for _,fileAndChunkInfo := range fileInfoAndNbMatches.FilesAndChunksInfo {
+			fmt.Println("Checking for metahash :", metahash, " : ", fileAndChunkInfo)
+
+			if(fileAndChunkInfo.Metahash == metahash && fileAndChunkInfo.FoundAllChunks) {
+				
+				// initialize the file :
+				gossiper.SafeIndexedFiles.mux.Lock()
+				f := gossiper.SafeIndexedFiles.IndexedFiles[metahash] 
+
+				if(f.Done) {
+					gossiper.SafeIndexedFiles.mux.Unlock()
+					return
+				}
+
+				f.NextIndex = 0
+				f.Done = false
+				metafile := f.Metafile
+
+				if(metafile == "") {
+					fmt.Println("ERROR : metafile is nil in downloadFileWithMetahash of requestSearching.go")
+				}
+
+				// ATTENTION : Should check if filename already exists before saving it
+
+				f.Name = filename
+				gossiper.SafeIndexedFiles.IndexedFiles[metahash] = f
+				fmt.Println("Updated SafeIndexedFiles :", gossiper.SafeIndexedFiles.IndexedFiles)
+				gossiper.SafeIndexedFiles.mux.Unlock()
+
+				// request next chunk destination
+				newDestination := getNextChunkDestination(metahash, 0, "")
+
+				fmt.Println("The destination :", newDestination)
+
+				if(newDestination != "") {
+					newAddress := getAddressFromRoutingTable(newDestination)
+
+					fmt.Println("DOWNLOADING", f.Name, "chunk 1", "from", newDestination, "requesting hash :", metafile[:CHUNK_HASH_SIZE_IN_HEXA])
+
+					// send request for first chunk
+					dataRequest := DataRequest {
+						Origin : gossiper.Name,
+						Destination : newDestination,
+						HopLimit : 10,
+						HashValue : hexToBytes(metafile[:CHUNK_HASH_SIZE_IN_HEXA]),
+					}
+
+					sendDataRequestToSpecificPeer(dataRequest, newAddress)
+					makeDataRequestTimer(newDestination, dataRequest)
+				}
+			}
+		}
+	}
+}
+
+func getNextChunkDestination(metahash_hex string, nextChunkIndex uint64, lastSender string) string {
+	gossiper.SafeKeywordToInfo.mux.Lock()
+	allKeywordsToFileInfoAndNbMatches := gossiper.SafeKeywordToInfo.KeywordToInfo
+	gossiper.SafeKeywordToInfo.mux.Unlock()
+
+	var contains bool
+
+	for _,fileInfoAndNbMatches := range allKeywordsToFileInfoAndNbMatches {
+		for _, fileInfo := range fileInfoAndNbMatches.FilesAndChunksInfo {
+			if(fileInfo.Metahash == metahash_hex) {
+				if(lastSender != "") {
+					contains = containsUint64InArray(fileInfo.ChunkOriginToIndices[lastSender], nextChunkIndex)
+				
+					if(contains) {
+						return lastSender
+					}
+				}
+
+				for origin, chunkArrayOfOrigin := range fileInfo.ChunkOriginToIndices {
+					contains = containsUint64InArray(chunkArrayOfOrigin, nextChunkIndex)
+
+					if(contains) {
+						return origin
+					}
+				}
+
+				return ""
+			} 
+		}
+	}
+
+	return ""
+}
+
+// returns metahash, metafile, next chunk to request, downloadIsDone
+func getMetahashMetafileIndexOfNextChunkFromAwaitingRequests(currentHashValue_hex string) (string, string, string, uint64, bool) {
+	gossiper.SafeAwaitingRequestsMetahash.mux.Lock()
+	awaitingRequests := gossiper.SafeAwaitingRequestsMetahash.AwaitingRequestsMetahash
+	gossiper.SafeAwaitingRequestsMetahash.mux.Unlock()
+
+	for metahash, metafile := range awaitingRequests {
+		re := regexp.MustCompile(`[a-f0-9]{64}`)
+    	metafileArray := re.FindAllString(metafile, -1) // split metafile into array of 64 char chunks
+    	
+    	for chunkIndex, chunk := range metafileArray {
+    		if(currentHashValue_hex == chunk) {
+
+    			// check if it is the last chunk
+    			if(chunkIndex == len(metafileArray) - 1) {
+    				return metahash, metafile, "", uint64(chunkIndex+1), true
+    			} else {
+    				return metahash, metafile, metafileArray[chunkIndex + 1], uint64(chunkIndex+1), false
+    			}
+    		}
+    	}
+	}
+
+	return "", "", "", 0, false
 }
 
 func matchesRegex(filename string, keyword string) bool {
