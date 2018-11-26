@@ -7,7 +7,6 @@ import(
     "hash"
     "os"
     "io"
-    "bytes"
     "regexp"
 )
 
@@ -28,7 +27,9 @@ func createEmptyFile(filename string) {
     }
 }
 
-func writeChunkToFile(filename string, chunk []byte) {
+func writeChunkToFile(filename string, chunk_str string) {
+    chunk := hexToBytes(chunk_str)
+
     _, err := os.Stat("Peerster/_SharedFiles/" + filename)
 
     if(os.IsNotExist(err)) {
@@ -67,11 +68,15 @@ func copyFileToDownloads(filename string) {
     isError(err)
 }
 
-func computeHash(b []byte) []byte {
+func computeHash(s string) string {
+    b := hexToBytes(s)
+
     var h hash.Hash
     h = sha256.New()
     h.Write(b)
-    return h.Sum(nil)
+    res := h.Sum(nil)
+
+    return bytesToHex(res)
 }
 
 func getChunkMap(file File) []uint64 {
@@ -144,31 +149,29 @@ func getNextChunkHashToRequest(fileOrigin string, hashValue string) (int, bool, 
         metahash_hex = fileAndIndex.Metahash
         if((fileAndIndex.NextIndex == -1) && (hashValue == metahash_hex) && !fileAndIndex.Done) {
             // return first chunkHash
-            nextChunkHash = metahash_hex[0:2*HASH_SIZE]
+            nextChunkHash = metahash_hex[0:CHUNK_HASH_SIZE_IN_HEXA]
             isMetafile = true
             return i, isMetafile, nextChunkHash, false
         }
     }
-
-
 
     // Otherwise we received a chunk, must range over all metafiles and see which chunk hash 
     for i, fileAndIndex := range filesOfOrigin {
         
         metafile_hex := fileAndIndex.Metafile
         currentIndex := fileAndIndex.NextIndex
-        currentChunkHash := metafile_hex[(currentIndex * 2 * HASH_SIZE) : (currentIndex+1) * 2 * HASH_SIZE]
+        currentChunkHash := metafile_hex[(currentIndex * CHUNK_HASH_SIZE_IN_HEXA) : (currentIndex+1) * CHUNK_HASH_SIZE_IN_HEXA]
 
         if(currentChunkHash == hashValue) {
 
             index := currentIndex + 1
 
-            if(len(metafile_hex) >  (index + 1) * 2 * HASH_SIZE) {
-                nextChunkHash := metafile_hex[(index * 2 * HASH_SIZE) : (index+1) * 2 * HASH_SIZE]
+            if(len(metafile_hex) >  (index + 1) * CHUNK_HASH_SIZE_IN_HEXA) {
+                nextChunkHash := metafile_hex[(index * CHUNK_HASH_SIZE_IN_HEXA) : (index+1) * CHUNK_HASH_SIZE_IN_HEXA]
                 return i, false, nextChunkHash, false
 
-            } else if(len(metafile_hex) ==  (index + 1) * 2 * HASH_SIZE) {
-                nextChunkHash := metafile_hex[index * 2 * HASH_SIZE : (index+1) * 2 * HASH_SIZE]
+            } else if(len(metafile_hex) ==  (index + 1) * CHUNK_HASH_SIZE_IN_HEXA) {
+                nextChunkHash := metafile_hex[index * CHUNK_HASH_SIZE_IN_HEXA:(index+1)*CHUNK_HASH_SIZE_IN_HEXA]
                 return i, false, nextChunkHash, false
 
             } else {
@@ -181,7 +184,7 @@ func getNextChunkHashToRequest(fileOrigin string, hashValue string) (int, bool, 
 }
 
 // returns index of file, isMetafile, nextChunk
-func getNextChunkToRequest(fileOrigin string, hashValue []byte) (int, bool, []byte) {
+func getNextChunkToRequest(fileOrigin string, hashValue string) (int, bool, []byte) {
     var nextChunk []byte
     isMetafile := false
     indexOfFile := -1
@@ -196,10 +199,10 @@ func getNextChunkToRequest(fileOrigin string, hashValue []byte) (int, bool, []by
 
     // First check if we received a metafile
     for i, fileAndIndex := range filesAndIndicesOfOrigin {
-        if((fileAndIndex.NextIndex == -1) && bytes.Equal(hashValue, hexToBytes(fileAndIndex.Metahash))) {
+        if((fileAndIndex.NextIndex == -1) && hashValue == fileAndIndex.Metahash) {
             // return first chunk
             gossiper.SafeIndexedFiles.mux.Lock()
-            nextChunk = getChunkByIndex(gossiper.SafeIndexedFiles.IndexedFiles[bytesToHex(hashValue)].Name, 0)
+            nextChunk = getChunkByIndex(gossiper.SafeIndexedFiles.IndexedFiles[hashValue].Name, 0)
             gossiper.SafeIndexedFiles.mux.Unlock()
             isMetafile = true
             return i, isMetafile, nextChunk
@@ -212,10 +215,11 @@ func getNextChunkToRequest(fileOrigin string, hashValue []byte) (int, bool, []by
         filename := gossiper.SafeIndexedFiles.IndexedFiles[fileAndIndex.Metahash].Name
         gossiper.SafeIndexedFiles.mux.Unlock()
 
-        currentChunk := getChunkByIndex(filename, fileAndIndex.NextIndex-1)
-        currentHash := computeHash(currentChunk)
+        currentChunk_str := bytesToHex(getChunkByIndex(filename, fileAndIndex.NextIndex-1))
 
-        if(bytes.Equal(currentHash, hashValue)) {
+        currentHash := computeHash(currentChunk_str)
+
+        if(currentHash == hashValue) {
             nextChunk = getChunkByIndex(filename, fileAndIndex.NextIndex)
             isMetafile = false
             return i, isMetafile, nextChunk
@@ -248,7 +252,8 @@ func getChunkByIndex(filename string, index int) []byte {
 
 }
 
-func computeFileIndices(filename string, gotEntireFile bool) File {
+// return file, isOk
+func computeFileIndices(filename string, gotEntireFile bool) (File, bool) {
     // Should we initialize the rest of the fields with make([]byte, ...) ? 
     var f File
 
@@ -258,7 +263,7 @@ func computeFileIndices(filename string, gotEntireFile bool) File {
     defer file.Close()
 
     if(err != nil) {
-        return f
+        return f, false
     }
 
     f = File{Name: filename}
@@ -271,14 +276,13 @@ func computeFileIndices(filename string, gotEntireFile bool) File {
     reader := bufio.NewReader(file)
     chunk := make([]byte, CHUNK_SIZE) // a chunk of the file
 
-    nbChunks := 0
     alreadyRead := 0
 
     // Compute SHA256 of all chunks
-    sha_chunks := []Chunk{} // array of sha hashes of chunks
-    var h hash.Hash
-    metafile := []byte{}
-    var chunk_hash []byte
+    sha_chunks := []string{} // array of sha hashes of chunks
+    var metafile string
+    var chunk_hash_hex string
+    var chunk_hex string
 
     for {
         if _, err = reader.Read(chunk); err != nil {
@@ -286,24 +290,22 @@ func computeFileIndices(filename string, gotEntireFile bool) File {
         }
 
         if(alreadyRead + CHUNK_SIZE < int(f.Size)) {
-            h = sha256.New()
-            h.Write(chunk)
-            chunk_hash = h.Sum(nil)
-            sha_chunks = append(sha_chunks, Chunk{ByteArray: chunk_hash})
-            metafile = append(metafile, chunk_hash...)
+            chunk_hex := bytesToHex(chunk)
+            chunk_hash_hex = computeHash(chunk_hex)
+
+            sha_chunks = append(sha_chunks, chunk_hash_hex)
+            metafile = metafile + chunk_hash_hex
             alreadyRead += CHUNK_SIZE
 
         } else { // this is the last chunk
             chunkLimit := int(f.Size) - alreadyRead
-            h = sha256.New()
-            h.Write(chunk[0:chunkLimit])
 
-            chunk_hash = h.Sum(nil)
-            sha_chunks = append(sha_chunks, Chunk{ByteArray: chunk_hash})
-            metafile = append(metafile, chunk_hash...)
+            chunk_hex = bytesToHex(chunk[0:chunkLimit])
+
+            chunk_hash_hex = computeHash(chunk_hex)
+            sha_chunks = append(sha_chunks, chunk_hash_hex)
+            metafile = metafile + chunk_hash_hex
         }
-
-        nbChunks++
     }
 
     if err != io.EOF {
@@ -312,15 +314,11 @@ func computeFileIndices(filename string, gotEntireFile bool) File {
         err = nil
     }
 
-    f.Metafile = bytesToHex(metafile)   
+    f.Metafile = metafile   
     //fmt.Println("Metafile :", f.Metafile, " or as bytes :", metafile)
 
     // compute metahash
-    h = sha256.New()
-    h.Write(metafile)
-    metahash := h.Sum(nil)
-
-    f.Metahash = bytesToHex(metahash)
+    f.Metahash = computeHash(metafile)
 
     if(gotEntireFile) {
         f.NextIndex = int(getNbChunksFromMetafile(f.Metafile))
@@ -330,5 +328,7 @@ func computeFileIndices(filename string, gotEntireFile bool) File {
         f.Done = false
     }
 
-    return f
+    fmt.Println(f)
+
+    return f, true
 }

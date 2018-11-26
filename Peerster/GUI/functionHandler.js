@@ -1,4 +1,3 @@
-
 const SERVER_ADDRESS = "http://localhost:8080";
 
 var messages = [];
@@ -334,29 +333,22 @@ function addPrivateMessage(message, origin) {
 }
 
 function addNewMatch(match) {
-	var button = document.createElement('downloadFileButton');
-	const privateChat = document.getElementById('privateChatboxID');
-	button.textContent = "Download";
-	button.setAttribute("ID", match);
+	var matchButton = document.createElement('downloadFileButton');
+	//const privateChat = document.getElementById('privateChatboxID');
+	matchButton.textContent = "Download";
+	matchButton.setAttribute("ID", match);
 
 	const paragraph = document.createElement('li');
 	paragraph.textContent = match;
 
-	button.onclick = function(){
-		console.log("Request Download !" + button.getAttribute("ID"));
-		sendFileMatchRequest(button.getAttribute("ID"));
-		
-
-		// TODO
-	
-
-
-
+	matchButton.onclick = function(){
+		console.log("Request Download !" + matchButton.getAttribute("ID"));
+		sendFileMatchRequest(matchButton.getAttribute("ID"));
 	}
 
 	container_element = document.getElementById('fileMatchesBoxID');
 	container_element.appendChild(paragraph);
-	container_element.appendChild(button);
+	container_element.appendChild(matchButton);
 }
 
 function shareFile() {

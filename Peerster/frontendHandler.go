@@ -266,21 +266,22 @@ func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
 
 	if(r.FormValue("Update") != "") {
         filename := r.FormValue("FileName")
-        file := computeFileIndices(filename, true)
+        file, isOk := computeFileIndices(filename, true)
 
-        fmt.Println("Metahash of file indexed is :", file.Metahash)
-		fmt.Println("Metafile of file indexed is :", file.Metafile)
+        if(isOk) {
+	        fmt.Println("Metahash of file indexed is :", file.Metahash)
+			fmt.Println("Metafile of file indexed is :", file.Metafile)
 
-        if(file.Size <= MAX_FILE_SIZE) {
-			// add to map of indexed files
-			metahash_hex := file.Metahash
-			gossiper.SafeIndexedFiles.mux.Lock()
-			gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = file
-			gossiper.SafeIndexedFiles.mux.Unlock()
-		} else {
-			fmt.Println("Error : file too big :", file.Size)
+	        if(file.Size <= MAX_FILE_SIZE) {
+				// add to map of indexed files
+				metahash_hex := file.Metahash
+				gossiper.SafeIndexedFiles.mux.Lock()
+				gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = file
+				gossiper.SafeIndexedFiles.mux.Unlock()
+			} else {
+				fmt.Println("Error : file too big :", file.Size)
+			}
 		}
-
     } else {
     	filename := r.FormValue("FileName")
     	dest := r.FormValue("Destination")
@@ -352,18 +353,6 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 	//fmt.Println("File search request :", r.FormValue("Keywords"), " with budget :", r.FormValue("Budget"))
 
 	if(r.FormValue("Update") == "") { // client wants to get new matches
-		// Just to test TODELETE
-
-		/*if(gossiper.LastMatchSentIndex == -1) {
-			gossiper.AllMatches = append(gossiper.AllMatches, MatchNameAndMetahash{
-			Filename: "file.txt",
-			Metahash: "abcdef",
-			})
-			gossiper.AllMatches = append(gossiper.AllMatches, MatchNameAndMetahash{
-				Filename: "file2.mp3",
-				Metahash: "fdasfdsa",
-			})
-		}*/
 
 		json := simplejson.New()
 	    matcheNamesArray := []string{}
@@ -390,11 +379,36 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(payload)
 	} else if(r.FormValue("Update") == "get"){
+		metahash_hex := r.FormValue("Metahash")
+		filename := r.FormValue("FileName")
 
-		fmt.Println("RECEIVED FILE TO DOWNLOAD REQUEST :", r.FormValue("FileName"), r.FormValue("Metahash"))
+		fmt.Println("RECEIVED FILE TO DOWNLOAD REQUEST :", filename, metahash_hex)
 
-		// Now request the download the whole file with help of the map[origin]->chunk
-		downloadFileWithMetahash(r.FormValue("FileName"), r.FormValue("Metahash"))
+		gossiper.SafeIndexedFiles.mux.Lock()
+		f, exists := gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex]
+		
+
+		if(!exists || !f.Done) {
+
+			f = File{
+				Name: getFilename(filename),
+				Metahash: metahash_hex,
+			}
+
+			gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = f
+			gossiper.SafeIndexedFiles.mux.Unlock()
+
+			// Now request the download the whole file with help of the map[origin]->chunk
+			searchReplyOrigin := getNextChunkDestination(metahash_hex, 0, "")
+			
+			fmt.Println("request metafile of :", metahash_hex, " of :", searchReplyOrigin)
+			requestMetafileOfHashAndDest(metahash_hex, searchReplyOrigin)
+			//downloadFileWithMetahash(filename, metahash_hex)
+		} else {
+			fmt.Println("File already downloaded")
+
+			gossiper.SafeIndexedFiles.mux.Unlock()
+		}
 	} else {
 
 		fmt.Println("RECEIVED FILE TO SEARCH REQUEST", r.FormValue("Update"))
@@ -419,7 +433,6 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 				Keywords: keywords,
 				NbOfMatches: 0,
 				BudgetIsGiven: budgetGiven,
-				//KeywordToInfo: make(map[string][]FileAndChunkInformation),
 			}
 
 			gossiper.SafeSearchRequests.mux.Unlock()

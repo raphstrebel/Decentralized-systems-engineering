@@ -377,9 +377,9 @@ func makeDataRequestTimer(fileOrigin string, dataRequest DataRequest) {
 		removeFinishedDataRequestTimer(fileOrigin)
 
 		// Send the request again
-		fmt.Println("TIMEOUT!")
-	    sendDataRequestToSpecificPeer(dataRequest, getAddressFromRoutingTable(fileOrigin))//gossiper.RoutingTable[fileOrigin])
-	    makeDataRequestTimer(fileOrigin, dataRequest)	
+		fmt.Println("TIMEOUT OF DATA REQUEST!", )
+	    /*sendDataRequestToSpecificPeer(dataRequest, getAddressFromRoutingTable(fileOrigin))
+	    makeDataRequestTimer(fileOrigin, dataRequest)*/	
 	}()
 }
 

@@ -6,25 +6,15 @@ import(
 	"math"
     "regexp"
     "time"
+    "os"
 )
 
 func sendPeriodicalSearchRequest(keywordsAsString string, nb_peers uint64) {
 	var budget uint64
 	budget = 2
-
-	// in gossiper, should make a map : requestedFileHash -> allChunksFound[] 
-	// and another keywordsasstring -> []requestedFileHash ?
-	// if the number of matches of a request is >= to ? (nb of keywords or constant 2 ?) then stop sending
-
-	go sendPeriodicalSearchRequestHelper(keywordsAsString, budget, nb_peers)
-}
-
-func sendPeriodicalSearchRequestHelper(keywordsAsString string, budget uint64, nb_peers uint64) {
-	var ticker *time.Ticker
+ 	var ticker *time.Ticker
 	ticker = time.NewTicker(time.Second)
 	defer ticker.Stop()
-
-	//done := make(chan bool, 1)
 
 	for {
 		// while we do not reach a budget of MAX_BUDGET or a number of matches = len(keywords), send the request again every second
@@ -43,15 +33,12 @@ func sendPeriodicalSearchRequestHelper(keywordsAsString string, budget uint64, n
 			}
 
 			if(budget > MAX_BUDGET || nbMatches >= MIN_NUMBER_MATCHES) {
-				fmt.Println("STOPPING TICKER") // todelete
-				//ticker.Stop()
+				fmt.Println("STOPPING TICKER", budget, " > 32 or ", nbMatches, " >= 2") // todelete
 				return 
 			} else {
 				// send the search request 
 				if(nb_peers > 0) {
-					fmt.Println("Sending new request with total budget :", budget)
 					budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
-					fmt.Println("Sending new request with budget for all :", budgetForAll, "and nb peers :", nb_peers)
 					sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
 				}
 
@@ -90,12 +77,9 @@ func propagateSearchRequest(keywords []string, budgetForAll uint64, nbPeersWithB
 	copy(remainingPeersToSendSearch, allCurrentPeers)
 
 	if(len(remainingPeersToSendSearch) == 0) {
-		fmt.Println("No peers to send request to")
+		fmt.Println("No peers to send request to")	
 		return
 	}
-
-	//fmt.Println("Peers to send request to :", remainingPeersToSendSearch)
-
 	var luckyPeersToSendSearch []string
 
 	for i := 0; i < int(nbPeersWithBudgetIncreased); i++ {
@@ -111,21 +95,15 @@ func propagateSearchRequest(keywords []string, budgetForAll uint64, nbPeersWithB
 			if(contains(luckyPeersToSendSearch, p)) {
 				// send search request with augmented budget :
 				sendSearchRequestToSpecificPeer(searchRequestWithAugmentedBudget, p)
-
-				// MAKE TIMEOUT ?
 			
 			} else {
 				sendSearchRequestToSpecificPeer(searchRequest, p)
-
-				// MAKE TIMEOUT ?
 			}
 		}
 	} else {
 		// send to lucky peers
 		for _,p := range luckyPeersToSendSearch {
 			sendSearchRequestToSpecificPeer(searchRequestWithAugmentedBudget, p)
-
-			// MAKE TIMEOUT ?
 		}
 	}
 }
@@ -164,21 +142,15 @@ func sendSearchRequestToNeighbours(keywords []string, budgetForAll uint64, nbPee
 			if(contains(luckyPeersToSendSearch, p)) {
 				// send search request with augmented budget :
 				sendSearchRequestToSpecificPeer(searchRequestWithAugmentedBudget, p)
-
-				// MAKE TIMEOUT ?
 			
 			} else {
 				sendSearchRequestToSpecificPeer(searchRequest, p)
-
-				// MAKE TIMEOUT ?
 			}
 		}
 	} else {
 		// send to lucky peers
 		for _,p := range luckyPeersToSendSearch {
 			sendSearchRequestToSpecificPeer(searchRequestWithAugmentedBudget, p)
-
-			// MAKE TIMEOUT ?
 		}
 	}
 }
@@ -248,17 +220,12 @@ func downloadFileWithMetahash(filename string, metahash string) {
 					return
 				}
 
-				f.NextIndex = 0
-				f.Done = false
 				metafile := f.Metafile
 
 				if(metafile == "") {
 					fmt.Println("ERROR : metafile is nil in downloadFileWithMetahash of requestSearching.go")
 				}
 
-				// ATTENTION : Should check if filename already exists before saving it
-
-				f.Name = filename
 				gossiper.SafeIndexedFiles.IndexedFiles[metahash] = f
 				fmt.Println("Updated SafeIndexedFiles :", gossiper.SafeIndexedFiles.IndexedFiles)
 				gossiper.SafeIndexedFiles.mux.Unlock()
@@ -271,7 +238,7 @@ func downloadFileWithMetahash(filename string, metahash string) {
 				if(newDestination != "") {
 					newAddress := getAddressFromRoutingTable(newDestination)
 
-					fmt.Println("DOWNLOADING", f.Name, "chunk 1", "from", newDestination, "requesting hash :", metafile[:CHUNK_HASH_SIZE_IN_HEXA])
+					fmt.Println("DOWNLOADING", f.Name, "chunk", f.NextIndex, "from", newDestination, "requesting hash :", metafile[:CHUNK_HASH_SIZE_IN_HEXA])
 
 					// send request for first chunk
 					dataRequest := DataRequest {
@@ -287,6 +254,19 @@ func downloadFileWithMetahash(filename string, metahash string) {
 			}
 		}
 	}
+}
+
+func getFilename(filename string) string {
+	// check if filename is used
+	_, err := os.Stat("Peerster/_SharedFiles/" + filename)
+
+    if(os.IsNotExist(err)) {
+    	return filename
+    } else {
+    	rand.Seed(time.Now().UTC().UnixNano())
+	    randomChar := string(rand.Intn(len(ALPHA_NUM_STRING)))
+	    return getFilename(randomChar + filename)
+    }
 }
 
 func getNextChunkDestination(metahash_hex string, nextChunkIndex uint64, lastSender string) string {
@@ -338,6 +318,7 @@ func getMetahashMetafileIndexOfNextChunkFromAwaitingRequests(currentHashValue_he
 
     			// check if it is the last chunk
     			if(chunkIndex == len(metafileArray) - 1) {
+    				fmt.Println("This is the last chunk we want !")
     				return metahash, metafile, "", uint64(chunkIndex+1), true
     			} else {
     				return metahash, metafile, metafileArray[chunkIndex + 1], uint64(chunkIndex+1), false

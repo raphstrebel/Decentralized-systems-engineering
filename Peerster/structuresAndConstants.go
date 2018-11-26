@@ -12,6 +12,8 @@ const HASH_SIZE = 32
 const MAX_FILE_SIZE = 1024*8*256 // 2MB
 const CHUNK_HASH_SIZE_IN_HEXA = 64
 
+const ALPHA_NUM_STRING = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+
 const MAX_BUDGET = 32
 const MIN_NUMBER_MATCHES = 2
 
@@ -106,6 +108,7 @@ type SearchResult struct {
 	FileName string
 	MetafileHash []byte
 	ChunkMap []uint64
+	ChunkCount uint64
 }
 
 type GossipPacket struct {
@@ -162,7 +165,7 @@ type MatchNameAndMetahash struct {
 
 type SafeAwaitingRequestMetahash struct {
 	// metahash as hex to metafile as hex
-	AwaitingRequestsMetahash map[string]string
+	AwaitingRequestsMetahash map[string]string//FileAndIndex
 	mux sync.Mutex
 }
 
@@ -237,7 +240,7 @@ type SearchRequestInformation struct {
 	Keywords []string
 	NbOfMatches uint32
 	BudgetIsGiven bool
-	AlreadyShown bool
+	//AlreadyShown bool
 }
 
 type FileAndChunkInformation struct {
