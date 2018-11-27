@@ -377,9 +377,9 @@ func makeDataRequestTimer(fileOrigin string, dataRequest DataRequest) {
 		removeFinishedDataRequestTimer(fileOrigin)
 
 		// Send the request again
-		fmt.Println("TIMEOUT OF DATA REQUEST!", )
-	    /*sendDataRequestToSpecificPeer(dataRequest, getAddressFromRoutingTable(fileOrigin))
-	    makeDataRequestTimer(fileOrigin, dataRequest)*/	
+		fmt.Println("TIMEOUT OF DATA REQUEST! Sending data request again", fileOrigin, dataRequest)
+	    sendDataRequestToSpecificPeer(dataRequest, getAddressFromRoutingTable(fileOrigin))
+	    makeDataRequestTimer(fileOrigin, dataRequest)
 	}()
 }
 
@@ -474,7 +474,7 @@ func updateRoutingTable(rumor RumorMessage, address string) bool {
 }    	
 
 // Create a new gossiper
-func NewGossiper(UIPort, gossipPort, name string, peers string) *Gossiper {
+func NewGossiper(UIPort string, gossipPort string, name string, peers string) *Gossiper {
 	
 	// Listen on UIPort
 	udpUIPort, err := net.ResolveUDPAddr("udp4", UIPort)

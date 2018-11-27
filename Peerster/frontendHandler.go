@@ -91,8 +91,6 @@ func MessageHandler(w http.ResponseWriter, r *http.Request) {
 	    gossiper.SafeNextClientMessageIDs.NextClientMessageID++
 	    gossiper.SafeNextClientMessageIDs.mux.Unlock()
 
-	    fmt.Println("Received client message, so sending", rumorMessage, "to one of :", gossiper.Peers)
-
 		stateID := updateStatusAndRumorArray(rumorMessage, false)
 		//updateStatusAndRumorMapsWhenReceivingClientMessage(rumorMessage)
 		
@@ -382,8 +380,6 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 		metahash_hex := r.FormValue("Metahash")
 		filename := r.FormValue("FileName")
 
-		fmt.Println("RECEIVED FILE TO DOWNLOAD REQUEST :", filename, metahash_hex)
-
 		gossiper.SafeIndexedFiles.mux.Lock()
 		f, exists := gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex]
 		
@@ -395,13 +391,16 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 				Metahash: metahash_hex,
 			}
 
+			fmt.Println("-------------------------------------------------------- we set the filename to :", f.Name, " for :", filename)
+
 			gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = f
 			gossiper.SafeIndexedFiles.mux.Unlock()
 
 			// Now request the download the whole file with help of the map[origin]->chunk
 			searchReplyOrigin := getNextChunkDestination(metahash_hex, 0, "")
+
+			fmt.Println("The search reply origin is :", searchReplyOrigin)
 			
-			fmt.Println("request metafile of :", metahash_hex, " of :", searchReplyOrigin)
 			requestMetafileOfHashAndDest(metahash_hex, searchReplyOrigin)
 			//downloadFileWithMetahash(filename, metahash_hex)
 		} else {
@@ -411,7 +410,7 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 
-		fmt.Println("RECEIVED FILE TO SEARCH REQUEST", r.FormValue("Update"))
+		fmt.Println("Received search request from GUI")
 
 		if(receivedBudget == "") {
 			budgetGiven = false
@@ -457,14 +456,11 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 			nb_peers := uint64(len(gossiper.Peers))
 
 			if(nb_peers == 0) {
-				fmt.Println("No peers")
 				return 
 			}
 
 			// send to all peers by setting a budget as evenly distributed as possible
 			budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
-
-			fmt.Println("All peers get budget :", budgetForAll, "some peers have increased budget :", nbPeersWithBudgetIncreased)
 
 			total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
 			
@@ -478,7 +474,6 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 			} else {
 				sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
 			}
-
 		} else {
 			gossiper.SafeSearchRequests.mux.Unlock()
 			fmt.Println("The same request was already made :", gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString])

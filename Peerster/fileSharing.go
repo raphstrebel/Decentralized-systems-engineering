@@ -328,7 +328,5 @@ func computeFileIndices(filename string, gotEntireFile bool) (File, bool) {
         f.Done = false
     }
 
-    fmt.Println(f)
-
     return f, true
 }

@@ -13,6 +13,7 @@ const MAX_FILE_SIZE = 1024*8*256 // 2MB
 const CHUNK_HASH_SIZE_IN_HEXA = 64
 
 const ALPHA_NUM_STRING = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+const LEN_ALPHA_NUM_STRING = len(ALPHA_NUM_STRING)
 
 const MAX_BUDGET = 32
 const MIN_NUMBER_MATCHES = 2
@@ -227,6 +228,7 @@ type File struct {
     Metafile string
     Metahash string
     NextIndex int
+    AlreadyShown bool
     Done bool
 }
 
@@ -240,7 +242,6 @@ type SearchRequestInformation struct {
 	Keywords []string
 	NbOfMatches uint32
 	BudgetIsGiven bool
-	//AlreadyShown bool
 }
 
 type FileAndChunkInformation struct {
@@ -265,7 +266,6 @@ type OriginAndKeywordsStruct struct {
 }
 
 type FileChunkInfoAndNbMatches struct {
-	// Should maybe change this into pointers, so that one file info is saved only once
 	FilesAndChunksInfo []FileAndChunkInformation
 	NbOfMatches uint32
 }

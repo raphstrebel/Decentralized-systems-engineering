@@ -45,9 +45,6 @@ func listenUIPort() {
 
         	gossiper.LastRumor = rumorMessage
         	stateID := updateStatusAndRumorArray(rumorMessage, false)
-        	//updateStatusAndRumorMapsWhenReceivingClientMessage(rumorMessage)
-
-        	fmt.Println("Received client message, so sending to one of :", gossiper.Peers)
 
         	if(len(gossiper.Peers) > 0) {
         		go rumormongering(rumorMessage, false)
@@ -92,8 +89,6 @@ func listenUIPort() {
 			dest := receivedPkt.Request.Destination
 			filename := receivedPkt.Request.FileName
 
-			//fmt.Println("Received Request from client for :", request_metahash)
-
 			address := getAddressFromRoutingTable(dest)
 
 			gossiper.SafeIndexedFiles.mux.Lock()
@@ -109,7 +104,7 @@ func listenUIPort() {
 				    NextIndex: -1,
 				}
 
-				fmt.Println("Received new file request :", gossiper.SafeIndexedFiles.IndexedFiles[request_metahash])
+				//fmt.Println("Received new file request :", gossiper.SafeIndexedFiles.IndexedFiles[request_metahash])
 				gossiper.SafeIndexedFiles.mux.Unlock()
 
 				dataRequest := DataRequest {
@@ -150,8 +145,6 @@ func listenUIPort() {
 
 			var budget uint64
 			budgetGiven := true
-
-			//fmt.Println("File search request :", r.FormValue("Keywords"), " with budget :", r.FormValue("Budget"))
 
 			if(receivedBudget == 0) {
 				budgetGiven = false
@@ -195,8 +188,6 @@ func listenUIPort() {
 				if(nb_peers > 0) {
 					// send to all peers by setting a budget as evenly distributed as possible
 					budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
-
-					fmt.Println("All peers get budget :", budgetForAll, "some peers have increased budget :", nbPeersWithBudgetIncreased)
 
 					total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
 					
@@ -343,7 +334,7 @@ func listenGossipPort() {
 				}
 			}
 		} else if(receivedPkt.DataRequest != nil) {
-			fmt.Println("RECEIVED DATA REQUEST !")
+
 			requestOrigin := receivedPkt.DataRequest.Origin
 			dest := receivedPkt.DataRequest.Destination
 			hopLimit := receivedPkt.DataRequest.HopLimit
@@ -351,7 +342,7 @@ func listenGossipPort() {
 			hashValue_hex := bytesToHex(hashValue_bytes)
 
 			if(dest == gossiper.Name) {
-				
+				fmt.Println("Received data request from :",requestOrigin, " HashValue :", hashValue_hex)
 				address := getAddressFromRoutingTable(requestOrigin)
 
 				if(address != "") {
@@ -359,7 +350,7 @@ func listenGossipPort() {
 					file, isMetaHash := gossiper.SafeIndexedFiles.IndexedFiles[hashValue_hex]
 					gossiper.SafeIndexedFiles.mux.Unlock()
 
-					fmt.Println("Received request :", hashValue_hex, " from :", requestOrigin)
+					//fmt.Println("Received Data request :", hashValue_hex, " from :", requestOrigin)
 					
 					// check if hashValue is a metahash, if yes send the metafile
 					if(isMetaHash) {
@@ -371,7 +362,6 @@ func listenGossipPort() {
 							Data : hexToBytes(file.Metafile),
 						}
 
-						//fmt.Println("Sending metafile :", file.Metafile)
 						sendDataReplyToSpecificPeer(dataReply, address)
 
 					} else {
@@ -390,7 +380,6 @@ func listenGossipPort() {
 								Data : hexToBytes(chunkToSend), // get i'th chunk
 							}
 						} else {
-							fmt.Println("We do not have the chunk !")
 							dataReply = DataReply{
 								Origin : gossiper.Name,
 								Destination : requestOrigin,
@@ -400,12 +389,11 @@ func listenGossipPort() {
 							}
 						}
 
-						fmt.Println("Sending chunk of hash :", nextChunkHash)
 						sendDataReplyToSpecificPeer(dataReply, address)
 					}
 				}
 			} else {
-				fmt.Println("Rerouting to ", dest)
+				fmt.Println("rerouting data request")
 				address := getAddressFromRoutingTable(dest)
 
             	if(address != "" && hopLimit > 0) {
@@ -422,13 +410,13 @@ func listenGossipPort() {
 
 		} else if(receivedPkt.DataReply != nil) {
 
-			fmt.Println("RECEIVED DATA REPLY")
-
 			fileOrigin := receivedPkt.DataReply.Origin
 			dest := receivedPkt.DataReply.Destination
 			hashValue := receivedPkt.DataReply.HashValue
 			hopLimit := receivedPkt.DataReply.HopLimit
 			data := receivedPkt.DataReply.Data
+
+			fmt.Println("Received data reply")
 
 			hashValue_hex := bytesToHex(hashValue)
 			data_hex := bytesToHex(data)
@@ -436,6 +424,7 @@ func listenGossipPort() {
 			if(dest == gossiper.Name) {
 
 				// check if we are expecting a reply from "fileOrigin" and cancel timer 
+
 				isResponse := isDataResponse(fileOrigin)
 	    	
 		    	if(isResponse) {
@@ -450,10 +439,7 @@ func listenGossipPort() {
 		    		indexOfFile, isMetafile, nextChunkHashNormalProcedure, isLastChunk := getNextChunkHashToRequest(fileOrigin, hashValue_hex)
 
 		    		gossiper.SafeAwaitingRequestsMetahash.mux.Lock()
-					//fileAndIndexStored, searchExistsAndHashIsMetafile := gossiper.SafeAwaitingRequestsMetahash.AwaitingRequestsMetahash[hashValue_hex]
 					metafile_hex_stored, searchExistsAndHashIsMetafile := gossiper.SafeAwaitingRequestsMetahash.AwaitingRequestsMetahash[hashValue_hex]
-
-					fmt.Println("the AwaitingRequestsMetahash map :", gossiper.SafeAwaitingRequestsMetahash.AwaitingRequestsMetahash, "the hash value", hashValue_hex)
 					gossiper.SafeAwaitingRequestsMetahash.mux.Unlock()
 
 					var metahash_hex string
@@ -463,37 +449,23 @@ func listenGossipPort() {
 					var downloadIsDone bool
 
 					if(!searchExistsAndHashIsMetafile) {
-						fmt.Println("Not in current searches or hash is not metafile")
 						metahash_hex, metafile_hex, nextChunkHash, nextChunkIndex, downloadIsDone = getMetahashMetafileIndexOfNextChunkFromAwaitingRequests(hashValue_hex)
-
-						fmt.Println("Results :", metahash_hex,nextChunkHash, nextChunkIndex)
 					}
 					
 					// Check if we are waiting for a metafile for a search request (if yes we don't need to download all the file)
 					if(searchExistsAndHashIsMetafile) {
-						//if(fileAndIndexStored.Metafile == "") {
+
 						if(metafile_hex_stored == "") {
 							metafile_hex = data_hex
 							metahash_hex = hashValue_hex
 
-							/*fileAndIndex := FileAndIndex{
-								Metahash: metahash_hex,
-								Metafile: metafile_hex,
-								NextIndex: 0,
-								Done: false,
-							}*/
+							fmt.Println("The search exists, the hash of the search is the metafile we requested :", metafile_hex)
 
 							gossiper.SafeAwaitingRequestsMetahash.mux.Lock()
-							gossiper.SafeAwaitingRequestsMetahash.AwaitingRequestsMetahash[metahash_hex] = metafile_hex//fileAndIndex
+							gossiper.SafeAwaitingRequestsMetahash.AwaitingRequestsMetahash[metahash_hex] = metafile_hex
 							gossiper.SafeAwaitingRequestsMetahash.mux.Unlock()
 
-							// Check if we have all chunks needed, if yes update the GUI
-							//metafile_hex = bytesToHex(data)
-							fmt.Println("We are waiting for a search reply for :", metahash_hex, " got metafile :", metafile_hex)
-
-							// Should we change AwaitingRequestsMetahash map to get keyword that wanted the response?
-
-							// add the metafile to our indexed files : gossiper.SafeIndexedFiles.IndexedFiles
+							// add the metafile to our indexed files 
 							gossiper.SafeIndexedFiles.mux.Lock()
 			    			f := gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex]
 			    			f.Metafile = metafile_hex
@@ -503,11 +475,12 @@ func listenGossipPort() {
 							
 
 							gossiper.SafeKeywordToInfo.mux.Lock()
+							allKeywordsToInfo := gossiper.SafeKeywordToInfo.KeywordToInfo
 
 							var changed bool
 
 							// Loop over all keywords :
-							for keyword, fileChunkInfoAndNbMatches := range gossiper.SafeKeywordToInfo.KeywordToInfo {
+							for keyword, fileChunkInfoAndNbMatches := range allKeywordsToInfo {
 
 								newFileChunkInfoAndNbMatches := fileChunkInfoAndNbMatches
 								
@@ -532,16 +505,16 @@ func listenGossipPort() {
 										newFileChunkInfoAndNbMatches.FilesAndChunksInfo[fileIndex] = fileInfo
 									}
 								}
+
 								gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = newFileChunkInfoAndNbMatches
 
 								if(changed) {
-									sendMatchToFrontendWithoutLocking(keyword, false)
+									sendMatchToFrontend(keyword, false, fileOrigin)
 								}
 							}
 
 							gossiper.SafeKeywordToInfo.mux.Unlock()
 
-							fmt.Println("Downloading file after receiving the metafile :")
 							downloadFileWithMetahash(f.Name, metahash_hex)
 
 						} else { 
@@ -571,7 +544,8 @@ func listenGossipPort() {
 						}
 
 						if(downloadIsDone) {
-							fmt.Println("RECONSTRUCTED blablabla")
+							fmt.Println("RECONSTRUCTED file", f.Name)
+
 							// copy file to _Downloads
 							copyFileToDownloads(f.Name)
 
@@ -587,9 +561,10 @@ func listenGossipPort() {
 							// request next chunk
 							newDestination := getNextChunkDestination(metahash_hex, nextChunkIndex, fileOrigin)
 							if(newDestination != "") {
+								fmt.Println("Received datareply line 563")
 								newAddress := getAddressFromRoutingTable(newDestination)
 									
-								fmt.Println("DOWNLOADING", f.Name, "chunk", nextChunkIndex, "from", newDestination, " chunk hash requested :", nextChunkHash)
+								fmt.Println("DOWNLOADING", f.Name, "chunk", nextChunkIndex+1, "from", newDestination)
 									
 								// Send request for next chunk
 								dataRequest := DataRequest {
@@ -599,15 +574,12 @@ func listenGossipPort() {
 									HashValue : hexToBytes(nextChunkHash),
 								}
 								
-								fmt.Println()
 								sendDataRequestToSpecificPeer(dataRequest, newAddress)
 								makeDataRequestTimer(newDestination, dataRequest)
 							} 
 						}
 					} else if(indexOfFile >= 0) {	
-
-						fmt.Println("WE ARE IN THE NORMAL PROCEDURE :")
-
+						fmt.Println("received data reply line 581")
 		    			address := getAddressFromRoutingTable(fileOrigin)
 
 		    			if(isMetafile) {
@@ -666,11 +638,7 @@ func listenGossipPort() {
 							gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = f
 							gossiper.SafeIndexedFiles.mux.Unlock()
 
-							fmt.Println("Received last file chunk, now got :", f)
-
 							//fmt.Println("DOWNLOADING", f.Name, "chunk", chunkIndex, "from", fileOrigin)
-
-							//hashValue_hex := bytesToHex(hashValue)
 
 							// check if the hash of metafile is metahash
 							if(hashValue_hex == f.Metafile[len(f.Metafile)-2*HASH_SIZE:len(f.Metafile)]) {
@@ -693,6 +661,9 @@ func listenGossipPort() {
 								fmt.Println("Error : file was not reconstructed :", f)
 							}
 						} else {
+
+							fmt.Println("Requesting next chunk : line 665")
+
 							// Save the data received to the file name :
 							gossiper.SafeRequestDestinationToFileAndIndexes.mux.Lock()
 							metahash_hex = gossiper.SafeRequestDestinationToFileAndIndexes.RequestDestinationToFileAndIndex[fileOrigin][indexOfFile].Metahash
@@ -708,11 +679,7 @@ func listenGossipPort() {
 
 							writeChunkToFile(f.Name, data_hex)
 
-							//fmt.Println("Received some file chunk, now got :", f)
-
 							fmt.Println("DOWNLOADING", f.Name, "chunk", chunkIndex, "from", fileOrigin)
-
-							fmt.Println("with chunk hash :", nextChunkHashNormalProcedure)
 							
 							// Send request for next chunk
 							dataRequest := DataRequest {
@@ -747,7 +714,7 @@ func listenGossipPort() {
 		    	}
 			} else {
 				// Send to next in routing table 
-				fmt.Println("Rerouting to ", dest)
+				fmt.Println("rerouting data reply")
 				address := getAddressFromRoutingTable(dest)
 
             	if(address != "" && hopLimit != 0) {
@@ -781,6 +748,7 @@ func listenGossipPort() {
 			gossiper.SafeOriginAndKeywords.OriginAndKeywords[originAndKeyword] = true
 			gossiper.SafeOriginAndKeywords.mux.Unlock()
 
+			fmt.Println("Received search request")
 			address := getAddressFromRoutingTable(searchOrigin)
 
 			if(address != "" && budget > 0 && !alreadyExists) {
@@ -820,10 +788,7 @@ func listenGossipPort() {
 					}
 				}
 
-				fmt.Println("Sending search reply to :", searchOrigin, " : ", searchReply, " with result array :")
-				printSearchReplies(searchReply.Results)
-
-
+				//printSearchReplies(searchReply.Results)
 				sendSearchReplyToSpecificPeer(searchReply, address)
 
 				// decrease budget, then send to all peers (except the origin of the search) by setting a budget as evenly distributed as possible
@@ -831,7 +796,6 @@ func listenGossipPort() {
 				nb_peers := len(gossiper.Peers)
 
 				if(budget > 0 && nb_peers > 1) {
-					fmt.Println("Number of peers > 1 :", nb_peers)
 					budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, uint64(nb_peers-1))
 					if(budgetForAll > 0) {
 						propagateSearchRequest(keywords, budgetForAll, nbPeersWithBudgetIncreased, searchOrigin, address)
@@ -841,7 +805,7 @@ func listenGossipPort() {
 				fmt.Println("Either address is not found :", address, ", budget is 0 :", budget, " or the search was already done in the last 0.5sec :", alreadyExists)
 			}
 		} else if(receivedPkt.SearchReply != nil) {
-			fmt.Println("Received search reply :", receivedPkt.SearchReply)
+			//fmt.Println("Received search reply :", receivedPkt.SearchReply)
 
 			searchReplyOrigin := receivedPkt.SearchReply.Origin
 			dest := receivedPkt.SearchReply.Destination
@@ -855,11 +819,8 @@ func listenGossipPort() {
 				gossiper.SafeKeywordToInfo.mux.Lock()
 
 				// check all files received as result to see if they match one or more keywords and add them to the files of the keyword they match 
-				//LoopOverSearchResults:
 				for _,file := range results {
 					metahash_hex := bytesToHex(file.MetafileHash)
-
-					fmt.Println("Checking result :", file, "with metahash :", metahash_hex)
 
 					// check if we already have the file :
 					gossiper.SafeIndexedFiles.mux.Lock()
@@ -879,8 +840,6 @@ func listenGossipPort() {
 								keywordsMatchedMap[keyword] = true
 
 								alreadyContains, indexOfFile := containsFileMetahash(fileAndChunkInfoOfKeyword, metahash_hex)
-
-								fmt.Println("File contains metahash :", metahash_hex, " ? ", alreadyContains, " with keyword", keyword)
 
 								if(!alreadyContains) {
 									// Must append this file to our list of files for this keyword : (we cannot increment the matches as we do not have the metafile)
@@ -908,14 +867,10 @@ func listenGossipPort() {
 											newFileAndChunkInfo.FoundAllChunks = true
 
 											// In this scenario when receiving the same file twice we increment nb of matches twice...
-
+											// TODO check if next line is needed
 											fileChunkInfoAndNbMatchesOfKeyword.NbOfMatches++
 											gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = fileChunkInfoAndNbMatchesOfKeyword
-											
-											//sendMatchToFrontend(keyword, true)
 										}
-
-										//requestMetafileOfHashAndDest(metahash_hex, searchReplyOrigin)
 									} else {
 										newFileAndChunkInfo.Metafile = indexedFile.Metafile
 										//newFileAndChunkInfo.NbOfChunks = getNbChunksFromMetafile(indexedFile.Metafile)
@@ -933,7 +888,8 @@ func listenGossipPort() {
 									gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = fileChunkInfoAndNbMatchesOfKeyword
 
 								} else {
-									// So our keyword already has the file, we have the index of the file in the array 
+									// Our keyword already has the file, we have the index of the file in the array 
+									
 									// so we just need to update the chunkIndices with file.ChunkMap
 									fileAndChunkInfoToUpdate := fileAndChunkInfoOfKeyword[indexOfFile]
 
@@ -959,9 +915,6 @@ func listenGossipPort() {
 
 									// check if we have the metafile
 									if(fileAndChunkInfoToUpdate.Metafile != "") {
-										/*if(fileAndChunkInfoToUpdate.NbOfChunks == 0) {
-											fileAndChunkInfoToUpdate.NbOfChunks = getNbChunksFromMetafile(fileAndChunkInfoToUpdate.Metafile)
-										}*/
 
 										// check if we have all chunks
 										nbTotalChunks := getNbTotalChunksOfMap(fileAndChunkInfoToUpdate.ChunkOriginToIndices)
@@ -971,19 +924,15 @@ func listenGossipPort() {
 											incrementNbMatches = true
 										}
 
-									} else {
-
-										fmt.Println("We do not have the metafile, requesting metafile for :", metahash_hex)
-										requestMetafileOfHashAndDest(metahash_hex, dest)
-									}
+									} /*else {
+										fmt.Println("Requesting the metafile :")
+										requestMetafileOfHashAndDest(metahash_hex, searchReplyOrigin)
+									}*/
 
 									fileAndChunkInfoOfKeyword[indexOfFile] = fileAndChunkInfoToUpdate
 
 									if(incrementNbMatches) {
 										fileChunkInfoAndNbMatchesOfKeyword.NbOfMatches++
-
-										// Update GUI if total number of matches is >= 2
-										// TODO 
 									}
 
 									fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo = fileAndChunkInfoOfKeyword
@@ -994,17 +943,13 @@ func listenGossipPort() {
 						}
 					}
 				}
-
-				// Now we must check if any searchRequest can be updated, so we keep track of all keywords that have been found in the results with keywordsMatchedMap
-				// If number of matches of a search is >= 2, delete the searchRequest from gossiper.SafeSearchRequest...
 				gossiper.SafeKeywordToInfo.mux.Unlock()  
 
-				updateSearchRequestsByKeywords(keywordsMatchedMap)
+				updateSearchRequestsByKeywords(keywordsMatchedMap, searchReplyOrigin)
 
 			} else { 
-				fmt.Println("Rerouting to ", dest)
-
 				// we are not the destination, send message to destination
+				fmt.Println("rerouting search request")
 				address := getAddressFromRoutingTable(dest)
 
 	            if(address != "" && hopLimit > 0) {
@@ -1022,128 +967,6 @@ func listenGossipPort() {
 			fmt.Println("ERROR : Packet of unknown type :", receivedPkt)
 		}
     }
-}
-
-func requestMetafileOfHashAndDest(metahash_hex string, dest string) {
-	gossiper.SafeAwaitingRequestsMetahash.mux.Lock()
-	metafile_hex, exists := gossiper.SafeAwaitingRequestsMetahash.AwaitingRequestsMetahash[metahash_hex]
-
-	// sanity check :
-	if(metafile_hex != "") {
-		fmt.Println("ERROR we have metafile in fileAndChunkInfoToUpdate but not in AwaitingRequestsMetahash")
-	}
-
-	if(!exists || metafile_hex == "") {
-		gossiper.SafeAwaitingRequestsMetahash.AwaitingRequestsMetahash[metahash_hex] = ""
-		gossiper.SafeAwaitingRequestsMetahash.mux.Unlock() 
-
-		// send data request for metafile
-		dataRequest := DataRequest {
-			Origin : gossiper.Name,
-			Destination : dest,
-			HopLimit : 10,
-			HashValue : hexToBytes(metahash_hex),
-		}
-
-		address := getAddressFromRoutingTable(dest)
-
-		fmt.Println("Requesting metafile of ", metahash_hex, " from :", dest)
-
-		sendDataRequestToSpecificPeer(dataRequest, address)
-		makeDataRequestTimer(dest, dataRequest)
-	} else {
-		gossiper.SafeAwaitingRequestsMetahash.mux.Unlock() 
-	}
-}
-
-
-func updateSearchRequestsByKeywords(keywordsMatchedMap map[string]bool) {
-	gossiper.SafeSearchRequests.mux.Lock()
-	allSearchRequestInfos := gossiper.SafeSearchRequests.SearchRequestInfo
-	gossiper.SafeSearchRequests.mux.Unlock()
-	
-	// all keywordsAsString of our "active" researches
-	for keywordsAsString := range allSearchRequestInfos {
-
-		fmt.Println("Checking for Keywords :", keywordsAsString)
-		infoOfKeywords := allSearchRequestInfos[keywordsAsString]
-
-		// all keywords that were changed
-		for keyword := range keywordsMatchedMap {
-			if(contains(infoOfKeywords.Keywords, keyword)) {
-
-				// Update number of matches of the request if the budget was not given (else we always show all matches)
-				nbMatches := infoOfKeywords.NbOfMatches
-				nbMatches += 1//gossiper.SafeKeywordToInfo.KeywordToInfo[keyword].NbOfMatches
-				infoOfKeywords.NbOfMatches = nbMatches
-
-				gossiper.SafeSearchRequests.mux.Lock()
-				gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString] = infoOfKeywords
-				gossiper.SafeSearchRequests.mux.Unlock()
-
-				sendMatchToFrontend(keyword, false)
-			}
-		}
-	}
-}
-
-func printSearchReplies(results []*SearchResult) {
-	for i,res := range results {
-		fmt.Println("result ", i, " : name :", (*res).FileName, " metahash :", bytesToHex((*res).MetafileHash), " chunks :", (*res).ChunkMap)
-	}
-}
-
-func sendMatchToFrontend(keyword string, limitMatches bool) {
-	gossiper.SafeKeywordToInfo.mux.Lock()
-	fileChunkInfoAndNbMatchesOfKeyword := gossiper.SafeKeywordToInfo.KeywordToInfo[keyword]
-	fmt.Println("Got a match :")
-
-	for index := range fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo {
-
-		file := fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo[index]
-
-		if(file.FoundAllChunks && !file.AlreadyShown) {
-			fmt.Println(file)
-			file.AlreadyShown = true
-			fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo[index] = file
-			gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = fileChunkInfoAndNbMatchesOfKeyword
-
-			addMatchToArray(file.Metahash, file.Filename)
-
-		} else {
-			fmt.Println("Did not find all chunks yet :", file)
-		}
-	}
-
-	gossiper.SafeKeywordToInfo.mux.Unlock()
-}
-
-func sendMatchToFrontendWithoutLocking(keyword string, limitMatches bool) {
-	fileChunkInfoAndNbMatchesOfKeyword := gossiper.SafeKeywordToInfo.KeywordToInfo[keyword]
-	fmt.Println("Got a match :")
-
-	for index := range fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo {
-
-		file := fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo[index]
-
-		if(file.FoundAllChunks && !file.AlreadyShown) {
-			file.AlreadyShown = true
-			fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo[index] = file
-			gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = fileChunkInfoAndNbMatchesOfKeyword
-
-			addMatchToArray(file.Metahash, file.Filename)
-
-		} else {
-			fmt.Println("Did not find all chunks yet :", file)
-		}
-	}
-}
-
-func addMatchToArray(metahash string, name string) {
-	gossiper.AllMatches = append(gossiper.AllMatches, MatchNameAndMetahash{
-		Filename: name,
-		Metahash: metahash,
-	})
 }
 
 func main() {
@@ -1169,7 +992,7 @@ func main() {
 		}
 
 		go listenUIPort()
-		go listenGossipPort()
+		listenGossipPort()
 		//go antiEntropy()
 
 		r := mux.NewRouter()
@@ -1211,7 +1034,7 @@ func main() {
 
 
 	ISSUES :
-		- SAME REQUEST WAS ALREADY MADE, SHOULD WE REALLY DO THIS ? DO THE 0.5 SEC THING 
+		- SAME REQUEST WAS ALREADY MADE, SHOULD WE REALLY DO THIS ? DO THE 0.5 SEC THING ?
 
 	commented rand.Int() in main.go, messageHandler of frontendHandler.go and in makeTimer of basicMethods, to uncomment.
 	*/
