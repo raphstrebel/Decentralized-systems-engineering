@@ -26,6 +26,7 @@ type ClientPacket struct {
     File *FileMessage
     Request *FileRequestMessage
     Search *FileSearchMessage
+    SearchDownload *FileDownloadMessage
 }
 
 type NormalMessage struct {
@@ -66,6 +67,11 @@ type FileRequestMessage struct {
 type FileSearchMessage struct {
     Keywords string
     Budget uint64
+}
+
+type FileDownloadMessage struct {
+	Filename string
+	Metahash string
 }
 
 type PeerStatus struct {
@@ -194,7 +200,7 @@ type SafeRequestDestinationToFileAndIndex struct {
 
 type SafeIndexedFile struct {
 	// map of metahash as hexadecimal string to file
-	IndexedFiles map[string]File
+	IndexedFiles map[string]MyFileStruct
 	mux sync.Mutex
 }
 
@@ -222,7 +228,7 @@ type Chunk struct {
     ByteArray []byte
 }
 
-type File struct {
+type MyFileStruct struct {
     Name string
     Size int
     Metafile string

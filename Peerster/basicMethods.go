@@ -377,7 +377,6 @@ func makeDataRequestTimer(fileOrigin string, dataRequest DataRequest) {
 		removeFinishedDataRequestTimer(fileOrigin)
 
 		// Send the request again
-		fmt.Println("TIMEOUT OF DATA REQUEST! Sending data request again", fileOrigin, dataRequest)
 	    sendDataRequestToSpecificPeer(dataRequest, getAddressFromRoutingTable(fileOrigin))
 	    makeDataRequestTimer(fileOrigin, dataRequest)
 	}()
@@ -525,7 +524,7 @@ func NewGossiper(UIPort string, gossipPort string, name string, peers string) *G
 			RoutingTable: make(map[string]string),
 		},
 		SafeIndexedFiles: SafeIndexedFile{
-			IndexedFiles: make(map[string]File),
+			IndexedFiles: make(map[string]MyFileStruct),
 		},
 		SafeDataRequestTimers: SafeTimer{
 			ResponseTimers: make(map[string][]ResponseTimer),

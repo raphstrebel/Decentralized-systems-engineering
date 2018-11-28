@@ -79,12 +79,12 @@ func computeHash(s string) string {
     return bytesToHex(res)
 }
 
-func getChunkMap(file File) []uint64 {
+func getChunkMap(file MyFileStruct) []uint64 {
     var chunkMap []uint64
 
     // If we don't even have the first chunk
     if(file.NextIndex == -1 || file.NextIndex == 0) {
-        fmt.Println("Next index of file is -1 or 0")
+        //fmt.Println("Next index of file is -1 or 0")
         return chunkMap
     } 
 
@@ -253,9 +253,9 @@ func getChunkByIndex(filename string, index int) []byte {
 }
 
 // return file, isOk
-func computeFileIndices(filename string, gotEntireFile bool) (File, bool) {
+func computeFileIndices(filename string, gotEntireFile bool) (MyFileStruct, bool) {
     // Should we initialize the rest of the fields with make([]byte, ...) ? 
-    var f File
+    var f MyFileStruct
 
     // Load file
     file, err := os.Open("Peerster/_SharedFiles/" + filename)
@@ -266,7 +266,7 @@ func computeFileIndices(filename string, gotEntireFile bool) (File, bool) {
         return f, false
     }
 
-    f = File{Name: filename}
+    f = MyFileStruct{Name: filename}
 
     // Get file length
     fileStat, err := file.Stat()

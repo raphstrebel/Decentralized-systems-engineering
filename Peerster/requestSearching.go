@@ -39,7 +39,7 @@ func sendPeriodicalSearchRequest(keywordsAsString string, nb_peers uint64) {
 				// send the search request 
 				if(nb_peers > 0) {
 					budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
-					fmt.Println("Sending sendPeriodicalSearchRequest with budget for all :", budgetForAll, " nb peers with more :", nbPeersWithBudgetIncreased)
+					//fmt.Println("Sending sendPeriodicalSearchRequest with budget for all :", budgetForAll, " nb peers with more :", nbPeersWithBudgetIncreased)
 					sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
 				}
 
@@ -127,7 +127,7 @@ func sendSearchRequestToNeighbours(keywords []string, budgetForAll uint64, nbPee
 
 	allCurrentPeers := make([]string, len(gossiper.Peers))
 	copy(allCurrentPeers, gossiper.Peers)
-	
+
 	remainingPeersToSendSearch := make([]string, len(allCurrentPeers))
 	copy(remainingPeersToSendSearch, allCurrentPeers)
 	var luckyPeersToSendSearch []string
@@ -183,12 +183,12 @@ func getDistributionOfBudget(budget uint64, nb_peers uint64) (uint64, uint64) {
 	return uint64(allPeersMinBudget), uint64(nbPeersWithBudgetIncreased)
 }
 
-func getFilesWithMatchingFilenames(keyword string) []File {
+func getFilesWithMatchingFilenames(keyword string) []MyFileStruct {
 	gossiper.SafeIndexedFiles.mux.Lock()
 	indexedFiles := gossiper.SafeIndexedFiles.IndexedFiles
 	gossiper.SafeIndexedFiles.mux.Unlock()
 
-	var matchingFiles []File
+	var matchingFiles []MyFileStruct
 
 	for _, file := range indexedFiles{ 
 	    if(matchesRegex(file.Name, keyword)) {
@@ -231,7 +231,7 @@ func downloadFileWithMetahash(filename string, metahash string) {
 				newDestination := getNextChunkDestination(metahash, 0, "")
 
 				if(newDestination != "") {
-					fmt.Println("downloadFileWithMetahash")
+					//fmt.Println("downloadFileWithMetahash")
 					newAddress := getAddressFromRoutingTable(newDestination)
 
 					fmt.Println("DOWNLOADING", f.Name, "chunk", f.NextIndex+1, "from", newDestination)
@@ -271,9 +271,6 @@ func requestMetafileOfHashAndDest(metahash_hex string, dest string) {
 
 	gossiper.SafeAwaitingRequestsMetahash.mux.Lock()
 	metafile_hex, exists := gossiper.SafeAwaitingRequestsMetahash.AwaitingRequestsMetahash[metahash_hex]
-
-	// todelete 
-	fmt.Println("requestMetafileOfHashAndDest the metafile of metahash_hex exists ?", exists)
 
 	// sanity check :
 	if(metafile_hex != "") {

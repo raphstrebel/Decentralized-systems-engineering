@@ -42,8 +42,6 @@ func sendStatusMsgToSpecificPeer(address string) {
 
 func sendDataRequestToSpecificPeer(dataRequest DataRequest, address string) {
 
-	fmt.Println("Sending data request : ", dataRequest, " to ", address)
-
 	// Encode message
 	packet := GossipPacket{DataRequest: &dataRequest}
 	sendPacketToSpecificPeer(packet, address)

@@ -97,7 +97,7 @@ func listenUIPort() {
 			// Not already downloaded and we know the address
 			if(!isIndexed && address != "") {
 
-				gossiper.SafeIndexedFiles.IndexedFiles[request_metahash] = File{
+				gossiper.SafeIndexedFiles.IndexedFiles[request_metahash] = MyFileStruct{
 				    Name: filename,
 				    Metafile : "",
 				    Metahash: request_metahash,
@@ -206,6 +206,39 @@ func listenUIPort() {
 				gossiper.SafeSearchRequests.mux.Unlock()
 				fmt.Println("The same request was already made :", gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString])
 			}
+		} else if(receivedPkt.SearchDownload != nil) {
+			filename := receivedPkt.SearchDownload.Filename
+			metahash_hex := receivedPkt.SearchDownload.Metahash
+
+
+			gossiper.SafeIndexedFiles.mux.Lock()
+			f, exists := gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex]
+			
+
+			if(!exists || !f.Done) {
+
+				f = MyFileStruct{
+					Name: getFilename(filename),
+					Metahash: metahash_hex,
+				}
+
+				gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = f
+				gossiper.SafeIndexedFiles.mux.Unlock()
+
+				// Now request the download the whole file with help of the map[origin]->chunk
+				searchReplyOrigin := getNextChunkDestination(metahash_hex, 0, "")
+
+				fmt.Println("The search reply origin is :", searchReplyOrigin)
+				
+				requestMetafileOfHashAndDest(metahash_hex, searchReplyOrigin)
+				//downloadFileWithMetahash(filename, metahash_hex)
+			} else {
+				fmt.Println("File already downloaded")
+
+				gossiper.SafeIndexedFiles.mux.Unlock()
+			}
+		} else {
+			fmt.Println("Error : Unknown packet received from client :", receivedPkt)
 		}
     }
 }
@@ -393,7 +426,6 @@ func listenGossipPort() {
 					}
 				}
 			} else {
-				fmt.Println("rerouting data request")
 				address := getAddressFromRoutingTable(dest)
 
             	if(address != "" && hopLimit > 0) {
@@ -415,8 +447,6 @@ func listenGossipPort() {
 			hashValue := receivedPkt.DataReply.HashValue
 			hopLimit := receivedPkt.DataReply.HopLimit
 			data := receivedPkt.DataReply.Data
-
-			fmt.Println("Received data reply")
 
 			hashValue_hex := bytesToHex(hashValue)
 			data_hex := bytesToHex(data)
@@ -714,7 +744,6 @@ func listenGossipPort() {
 		    	}
 			} else {
 				// Send to next in routing table 
-				fmt.Println("rerouting data reply")
 				address := getAddressFromRoutingTable(dest)
 
             	if(address != "" && hopLimit != 0) {
@@ -764,7 +793,7 @@ func listenGossipPort() {
 				}
 
 				var newResult *SearchResult
-				var matchingFiles []File
+				var matchingFiles []MyFileStruct
 				var chunkMap []uint64
 
 				// Check all indexed file names for keywords
@@ -911,33 +940,22 @@ func listenGossipPort() {
 										}
 									}
 
-									incrementNbMatches := false
-
 									// check if we have the metafile
 									if(fileAndChunkInfoToUpdate.Metafile != "") {
 
 										// check if we have all chunks
 										nbTotalChunks := getNbTotalChunksOfMap(fileAndChunkInfoToUpdate.ChunkOriginToIndices)
 
-										if(nbTotalChunks == fileAndChunkInfoToUpdate.NbOfChunks) {
+										if(nbTotalChunks == fileAndChunkInfoToUpdate.NbOfChunks && !fileAndChunkInfoToUpdate.FoundAllChunks) {
 											fileAndChunkInfoToUpdate.FoundAllChunks = true
-											incrementNbMatches = true
+											fileAndChunkInfoOfKeyword[indexOfFile] = fileAndChunkInfoToUpdate
+
+											fileChunkInfoAndNbMatchesOfKeyword.NbOfMatches++
+
+											fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo = fileAndChunkInfoOfKeyword
+											gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = fileChunkInfoAndNbMatchesOfKeyword
 										}
-
-									} /*else {
-										fmt.Println("Requesting the metafile :")
-										requestMetafileOfHashAndDest(metahash_hex, searchReplyOrigin)
-									}*/
-
-									fileAndChunkInfoOfKeyword[indexOfFile] = fileAndChunkInfoToUpdate
-
-									if(incrementNbMatches) {
-										fileChunkInfoAndNbMatchesOfKeyword.NbOfMatches++
 									}
-
-									fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo = fileAndChunkInfoOfKeyword
-									gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = fileChunkInfoAndNbMatchesOfKeyword
-
 								}
 							}
 						}
@@ -949,7 +967,6 @@ func listenGossipPort() {
 
 			} else { 
 				// we are not the destination, send message to destination
-				fmt.Println("rerouting search request")
 				address := getAddressFromRoutingTable(dest)
 
 	            if(address != "" && hopLimit > 0) {

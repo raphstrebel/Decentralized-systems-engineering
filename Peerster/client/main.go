@@ -13,6 +13,7 @@ type ClientPacket struct {
     File *FileMessage
     Request *FileRequestMessage
     Search *FileSearchMessage
+    SearchDownload *FileDownloadMessage
 }
 
 type NormalMessage struct {
@@ -40,6 +41,11 @@ type FileRequestMessage struct {
 type FileSearchMessage struct {
     Keywords string
     Budget uint64
+}
+
+type FileDownloadMessage struct {
+    Filename string
+    Metahash string
 }
 
 func isError(err error) {
@@ -106,15 +112,28 @@ func main() {
                 packet := ClientPacket{Request: fileMessage}
                 sendPacket(packet, gossiperAddr)
             }
-        }
+        } 
     } else if(*file != "") { 
-        // check if the file exists ?
-        fileMessage := &FileMessage{
-            FileName: *file,
-        }
 
-        packet := ClientPacket{File: fileMessage}
-        sendPacket(packet, gossiperAddr)
+        // Homework 3, we should be able to download a file just by putting in the file and the request fields (no dest)
+        if(*request != "") {
+            // check if the file exists ?
+            fileDownloadMessage := &FileDownloadMessage{
+                Filename: *file,
+                Metahash: *request,
+            }
+
+            packet := ClientPacket{SearchDownload: fileDownloadMessage}
+            sendPacket(packet, gossiperAddr)
+        } else {
+            // check if the file exists ?
+            fileMessage := &FileMessage{
+                FileName: *file,
+            }
+
+            packet := ClientPacket{File: fileMessage}
+            sendPacket(packet, gossiperAddr)
+        }
     } else if(*keywords != "") {
 
         if(*budget == 0) {

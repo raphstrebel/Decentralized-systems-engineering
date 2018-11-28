@@ -295,7 +295,7 @@ func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
 		if(!isIndexed && address != "" && filename != "" && dest != "" && metahash != "" ) {
 
 			gossiper.SafeIndexedFiles.mux.Lock()
-			gossiper.SafeIndexedFiles.IndexedFiles[metahash] = File{
+			gossiper.SafeIndexedFiles.IndexedFiles[metahash] = MyFileStruct{
 			    Name: filename,
 			    Metafile : "",
 			    Metahash: metahash,
@@ -342,12 +342,6 @@ func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
 func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
-	keywordsAsString := r.FormValue("Keywords")
-	receivedBudget := r.FormValue("Budget")
-
-	var budget uint64
-	budgetGiven := true
-
 	//fmt.Println("File search request :", r.FormValue("Keywords"), " with budget :", r.FormValue("Budget"))
 
 	if(r.FormValue("Update") == "") { // client wants to get new matches
@@ -377,6 +371,7 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(payload)
 	} else if(r.FormValue("Update") == "get"){
+
 		metahash_hex := r.FormValue("Metahash")
 		filename := r.FormValue("FileName")
 
@@ -386,12 +381,10 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 
 		if(!exists || !f.Done) {
 
-			f = File{
+			f = MyFileStruct{
 				Name: getFilename(filename),
 				Metahash: metahash_hex,
 			}
-
-			fmt.Println("-------------------------------------------------------- we set the filename to :", f.Name, " for :", filename)
 
 			gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = f
 			gossiper.SafeIndexedFiles.mux.Unlock()
@@ -399,7 +392,7 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 			// Now request the download the whole file with help of the map[origin]->chunk
 			searchReplyOrigin := getNextChunkDestination(metahash_hex, 0, "")
 
-			fmt.Println("The search reply origin is :", searchReplyOrigin)
+			//fmt.Println("The search reply origin is :", searchReplyOrigin)
 			
 			requestMetafileOfHashAndDest(metahash_hex, searchReplyOrigin)
 			//downloadFileWithMetahash(filename, metahash_hex)
@@ -410,7 +403,13 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 
-		fmt.Println("Received search request from GUI")
+		keywordsAsString := r.FormValue("Keywords")
+		receivedBudget := r.FormValue("Budget")
+
+		var budget uint64
+		budgetGiven := true
+
+		//fmt.Println("Received search request from GUI")
 
 		if(receivedBudget == "") {
 			budgetGiven = false
