@@ -6,6 +6,9 @@ import(
 	"time"
 )
 
+const NORMAL_HOP_LIMIT = 10
+const BLOCK_HOP_LIMIT = 20
+
 const CHUNK_SIZE = 1024*8
 const UDP_PACKET_SIZE = 10000
 const HASH_SIZE = 32
@@ -127,6 +130,8 @@ type GossipPacket struct {
 	DataReply *DataReply
 	SearchRequest *SearchRequest
 	SearchReply *SearchReply
+	TxPublish *TxPublish
+	BlockPublish *BlockPublish
 }
 
 type Gossiper struct {
@@ -163,6 +168,45 @@ type Gossiper struct {
 	SafeKeywordToInfo SafeKeywordToInformation
 	// map of metahash to metafile that are being requested
 	SafeAwaitingRequestsMetahash SafeAwaitingRequestMetahash
+	// map of name to filename to metahash
+	SafeFilenamesToMetahash SafeFilenameToMetahash
+	// array of pending transactions
+	PendingTx []TxPublish
+	//SafePendingTx SafePendingTxStruct
+	IsMining bool
+	// the blockchain
+	SafeBlockchain SafeBlockchainStruct
+	// map of heads of subchains
+	SafeHeadsToLength SafeHeadToLength
+	// current longest blockchain head hash (in hexa)
+	LongestChainHead string//BlockAndLength
+}
+
+/*type SafePendingTxStruct struct {
+	PendingTx []TxPublish
+	mux sync.Mutex
+}
+
+type BlockAndLength struct {
+	//Block Block
+	Hash_hex string
+	Length int
+}*/
+
+type SafeHeadToLength struct {
+	//HeadToBlockAndLength map[string]BlockAndLength
+	HeadToLength map[string]int
+	mux sync.Mutex
+}
+
+type SafeBlockchainStruct struct {
+	Blockchain map[string]Block
+	mux sync.Mutex
+}
+
+type SafeFilenameToMetahash struct {
+	FilenamesToMetahash map[string]string
+	mux sync.Mutex
 }
 
 type MatchNameAndMetahash struct {
@@ -279,4 +323,26 @@ type FileChunkInfoAndNbMatches struct {
 type SafeKeywordToInformation struct {
 	KeywordToInfo map[string]FileChunkInfoAndNbMatches
 	mux sync.Mutex
+}
+
+type TxPublish struct {
+	File File
+	HopLimit uint32
+}
+
+type BlockPublish struct {
+	Block Block
+	HopLimit uint32
+}
+
+type File struct {
+	Name string
+	Size int64
+	MetafileHash []byte
+}
+
+type Block struct {
+	PrevHash [32]byte
+	Nonce [32]byte
+	Transactions []TxPublish
 }

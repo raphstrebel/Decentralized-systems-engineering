@@ -65,6 +65,19 @@ func sendSearchReplyToSpecificPeer(searchReply SearchReply, address string) {
 	sendPacketToSpecificPeer(packet, address)
 }
 
+func sendTxPublishToSpecificPeer(txPublish TxPublish, address string) {
+	// Encode message
+	packet := GossipPacket{TxPublish: &txPublish}
+	sendPacketToSpecificPeer(packet, address)
+}
+
+func sendBlockToSpecificPeer(block BlockPublish, address string) {
+	// Encode message
+	packet := GossipPacket{BlockPublish: &block}
+	sendPacketToSpecificPeer(packet, address)
+}
+
+
 func generatePeriodicalRouteMessage(rtimer int) {
 	var ticker *time.Ticker
 	var luckyPeer string
@@ -88,13 +101,13 @@ func generatePeriodicalRouteMessage(rtimer int) {
 				rand.Seed(time.Now().UTC().UnixNano())
 	    		luckyPeer = gossiper.Peers[rand.Intn(len(gossiper.Peers))]
 
-	    		//updateStatusAndRumorMapsWhenReceivingClientMessage(routeMessage)
+	    		//stateID := updateStatusAndRumorArray(routeMessage, true)
 
-	    		stateID := updateStatusAndRumorArray(routeMessage, true)
-
-	    		if(stateID != "present") {
+	    		/*if(stateID != "present") {
 	    			fmt.Println("Error : state of route message is :", stateID)
-	    		}
+	    		}*/
+
+	    		updateStatusAndRumorArray(routeMessage, true)
 
 	    		sendRumorMsgToSpecificPeer(routeMessage, luckyPeer)
 	    		makeTimer(luckyPeer, routeMessage)

@@ -88,9 +88,11 @@ func getChunkMap(file MyFileStruct) []uint64 {
         return chunkMap
     } 
 
-    for i := 0; i < file.NextIndex; i++ {
+    for i := 1; i <= file.NextIndex; i++ {
         chunkMap = append(chunkMap, uint64(i))
     }
+
+    fmt.Println("My chunk map :", chunkMap)
 
     return chunkMap
 }

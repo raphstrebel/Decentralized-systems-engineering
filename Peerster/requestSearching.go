@@ -32,7 +32,9 @@ func sendPeriodicalSearchRequest(keywordsAsString string, nb_peers uint64) {
 				return 
 			}
 
-			if(budget > MAX_BUDGET || nbMatches >= MIN_NUMBER_MATCHES) {
+			if(budget > MAX_BUDGET) {
+				return
+			} else if(nbMatches >= MIN_NUMBER_MATCHES) {
 				fmt.Println("SEARCH FINISHED")
 				return 
 			} else {
@@ -144,9 +146,11 @@ func sendSearchRequestToNeighbours(keywords []string, budgetForAll uint64, nbPee
 		for _,p := range allCurrentPeers {
 			if(contains(luckyPeersToSendSearch, p)) {
 				// send search request with augmented budget :
+				fmt.Println("Sending search request :", searchRequestWithAugmentedBudget, " to :", p)
 				sendSearchRequestToSpecificPeer(searchRequestWithAugmentedBudget, p)
 			
 			} else {
+				fmt.Println("Sending search request :", searchRequest, " to :", p)
 				sendSearchRequestToSpecificPeer(searchRequest, p)
 			}
 		}

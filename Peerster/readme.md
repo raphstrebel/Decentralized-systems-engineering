@@ -1,7 +1,7 @@
 Homework 3 :
 
-Note On file naming for ex 1:
-When searching for a file and downloading it, I name the file with the same name as any other peer has given it (we do not really care about that) if this name is available.
+Note on file naming for ex 1:
+In the GUI, when searching for a file and downloading it, as we do not give a default name, I name the file with the same name as any other peer we are downloading from has given it (we do not really care about that) if this name is available.
 However, in the case where the name is already given to another file, I name it with a random appended alphanumerical character at the beginning. For example if "carlton.txt"
 is already used in my "SharedFiles" folder, then it might be named "Kcarlton.txt", or "2Kcarlton.txt" if "Kcarlton.txt" is also already used (and so on).
 

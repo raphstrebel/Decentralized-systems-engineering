@@ -58,7 +58,7 @@ func listenUIPort() {
                 ID : 0,
                 Text : receivedPkt.Private.Text,
                 Destination : receivedPkt.Private.Destination,
-                HopLimit : 10,
+                HopLimit : NORMAL_HOP_LIMIT,
             }
 
 			address := getAddressFromRoutingTable(receivedPkt.Private.Destination)
@@ -79,8 +79,37 @@ func listenUIPort() {
 				gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = file
 				gossiper.SafeIndexedFiles.mux.Unlock()
 
-				fmt.Println("Metahash of file indexed is :", metahash_hex)
-				fmt.Println("Metafile of file indexed is :", file.Metafile)
+				//fmt.Println("Metahash of file indexed is :", metahash_hex)
+				//fmt.Println("Metafile of file indexed is :", file.Metafile)
+
+
+				// ATTENTION : CHANGES APPLIED WITH HW 3
+				gossiper.SafeFilenamesToMetahash.mux.Lock()
+				_,alreadyInBlockchain := gossiper.SafeFilenamesToMetahash.FilenamesToMetahash[file.Name]
+				gossiper.SafeFilenamesToMetahash.mux.Unlock()
+
+				if(!alreadyInBlockchain) {
+					f := File {
+						Name: file.Name,
+						Size: int64(file.Size),
+						MetafileHash: hexToBytes(metahash_hex),
+					}
+
+					txPublish := TxPublish{
+						File: f,
+						HopLimit: NORMAL_HOP_LIMIT,
+					}
+
+					gossiper.PendingTx = append(gossiper.PendingTx, txPublish)
+
+
+					// JUST TO TEST
+					//broadcastTxPublishToAllPeersExcept(txPublish, "")
+
+				} else {
+					fmt.Println("Error : Filename already exists :", file.Name)
+				}
+
 			} else {
 				fmt.Println("Error : file inexistent or too big :", file)
 			}
@@ -104,13 +133,12 @@ func listenUIPort() {
 				    NextIndex: -1,
 				}
 
-				//fmt.Println("Received new file request :", gossiper.SafeIndexedFiles.IndexedFiles[request_metahash])
 				gossiper.SafeIndexedFiles.mux.Unlock()
 
 				dataRequest := DataRequest {
 					Origin : gossiper.Name,
 					Destination : dest,
-					HopLimit : 10,
+					HopLimit : NORMAL_HOP_LIMIT,
 					HashValue : hexToBytes(request_metahash),
 				}
 
@@ -181,30 +209,29 @@ func listenUIPort() {
 					}
 				}
 				gossiper.SafeKeywordToInfo.mux.Unlock()
-
-				// Send search request to up to "budget" neighbours :
-				nb_peers := uint64(len(gossiper.Peers))
-
-				if(nb_peers > 0) {
-					// send to all peers by setting a budget as evenly distributed as possible
-					budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
-
-					total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
-					
-					// Sanity check
-					if(total != budget) {
-						fmt.Println("ERROR : the total budget allocated and the total budget received is not the same :", total, " != ", budget)
-					}
-
-					if(budgetGiven) {
-						sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
-					} else {
-						sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
-					}
-				}
 			} else {
 				gossiper.SafeSearchRequests.mux.Unlock()
-				fmt.Println("The same request was already made :", gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString])
+			}
+
+			// Send search request to up to "budget" neighbours :
+			nb_peers := uint64(len(gossiper.Peers))
+
+			if(nb_peers > 0) {
+				// send to all peers by setting a budget as evenly distributed as possible
+				budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
+
+				total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
+					
+				// Sanity check
+				if(total != budget) {
+					fmt.Println("ERROR : the total budget allocated and the total budget received is not the same :", total, " != ", budget)
+				}
+
+				if(budgetGiven) {
+					sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
+				} else {
+					sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
+				}
 			}
 		} else if(receivedPkt.SearchDownload != nil) {
 			filename := receivedPkt.SearchDownload.Filename
@@ -390,7 +417,7 @@ func listenGossipPort() {
 						dataReply := DataReply{
 							Origin : gossiper.Name,
 							Destination : requestOrigin,
-							HopLimit : 10,
+							HopLimit : NORMAL_HOP_LIMIT,
 							HashValue : hexToBytes(file.Metahash),
 							Data : hexToBytes(file.Metafile),
 						}
@@ -408,7 +435,7 @@ func listenGossipPort() {
 							dataReply = DataReply{
 								Origin : gossiper.Name,
 								Destination : requestOrigin,
-								HopLimit : 10,
+								HopLimit : NORMAL_HOP_LIMIT,
 								HashValue : hexToBytes(hashValue_hex), // hash of i'th chunk
 								Data : hexToBytes(chunkToSend), // get i'th chunk
 							}
@@ -416,7 +443,7 @@ func listenGossipPort() {
 							dataReply = DataReply{
 								Origin : gossiper.Name,
 								Destination : requestOrigin,
-								HopLimit : 10,
+								HopLimit : NORMAL_HOP_LIMIT,
 								HashValue : hashValue_bytes, 
 								Data : []byte{}, // send empty data to show that we do not posses the file 
 							}
@@ -447,6 +474,8 @@ func listenGossipPort() {
 			hashValue := receivedPkt.DataReply.HashValue
 			hopLimit := receivedPkt.DataReply.HopLimit
 			data := receivedPkt.DataReply.Data
+
+			fmt.Println("Received data reply from :", fileOrigin)
 
 			hashValue_hex := bytesToHex(hashValue)
 			data_hex := bytesToHex(data)
@@ -600,7 +629,7 @@ func listenGossipPort() {
 								dataRequest := DataRequest {
 									Origin : gossiper.Name,
 									Destination : newDestination,
-									HopLimit : 10,
+									HopLimit : NORMAL_HOP_LIMIT,
 									HashValue : hexToBytes(nextChunkHash),
 								}
 								
@@ -642,7 +671,7 @@ func listenGossipPort() {
 					   			dataRequest := DataRequest {
 									Origin : gossiper.Name,
 									Destination : fileOrigin,
-									HopLimit : 10,
+									HopLimit : NORMAL_HOP_LIMIT,
 									HashValue : hexToBytes(firstChunk),
 								}
 									
@@ -715,7 +744,7 @@ func listenGossipPort() {
 							dataRequest := DataRequest {
 								Origin : gossiper.Name,
 								Destination : fileOrigin,
-								HopLimit : 10,
+								HopLimit : NORMAL_HOP_LIMIT,
 								HashValue : hexToBytes(nextChunkHashNormalProcedure),
 							}
 								
@@ -788,7 +817,7 @@ func listenGossipPort() {
 				searchReply := SearchReply{
 					Origin: gossiper.Name,
 					Destination: searchOrigin,
-					HopLimit: 10,
+					HopLimit: NORMAL_HOP_LIMIT,
 					Results: []*SearchResult{},
 				}
 
@@ -856,6 +885,8 @@ func listenGossipPort() {
 					f := gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex]
 					gossiper.SafeIndexedFiles.mux.Unlock()
 
+					chunkMap := getNormalChunkMap(file.ChunkMap)
+
 					// We do not have the file in our _Downloads folder 
 					if(!f.Done) {
 						// range over key,value of map KeywordToInfo
@@ -880,7 +911,7 @@ func listenGossipPort() {
 										AlreadyShown: false,
 										ChunkOriginToIndices: make(map[string][]uint64),
 									}
-									newFileAndChunkInfo.ChunkOriginToIndices[searchReplyOrigin] = file.ChunkMap
+									newFileAndChunkInfo.ChunkOriginToIndices[searchReplyOrigin] = chunkMap//file.ChunkMap
 
 									// Check if we have the metafile in our indexed files :
 									indexedFile, isContained := gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex]
@@ -928,7 +959,7 @@ func listenGossipPort() {
 									} 
 
 									// loop over all values (chunk indices) of the search result array, add the missing ones in the chunkOriginToIndex map :
-									for _, resultChunkIndex := range file.ChunkMap {
+									for _, resultChunkIndex := range chunkMap {//file.ChunkMap {
 										if(!containsUint64(fileAndChunkInfoToUpdate.ChunkOriginToIndices, resultChunkIndex)) {
 											_, originExists := fileAndChunkInfoToUpdate.ChunkOriginToIndices[searchReplyOrigin]
 
@@ -980,10 +1011,180 @@ func listenGossipPort() {
 					sendSearchReplyToSpecificPeer(searchReply, address)
 				}
 			}
+		} else if(receivedPkt.TxPublish != nil) {
+			
+			fmt.Println("Received TxPublish :", receivedPkt.TxPublish, "from :", peerAddr)
+
+			txPublish := receivedPkt.TxPublish
+			file := receivedPkt.TxPublish.File
+			hopLimit := receivedPkt.TxPublish.HopLimit
+
+			filename := file.Name
+			//metahash_hex := bytesToHex(file.MetafileHash)
+
+			gossiper.SafeFilenamesToMetahash.mux.Lock()
+			_, filenameExists := gossiper.SafeFilenamesToMetahash.FilenamesToMetahash[filename]
+			gossiper.SafeFilenamesToMetahash.mux.Unlock()
+
+			if(!filenameExists) {
+
+				if(hopLimit > 0) {
+					txPublish.HopLimit = hopLimit - 1
+					broadcastTxPublishToAllPeersExcept(*txPublish, peerAddr)
+				}
+				
+				gossiper.PendingTx = append(gossiper.PendingTx, *txPublish)
+
+				//go miningProcedure()
+
+			} else {
+				fmt.Println("Error : Filename already exists :", file.Name)
+			}
+		} else if(receivedPkt.BlockPublish != nil) {
+			fmt.Println("Received blockPublish from :", peerAddr)
+
+			blockPublish := receivedPkt.BlockPublish
+
+			handleNewBlockArrival(*blockPublish, peerAddr)
 		} else {
 			fmt.Println("ERROR : Packet of unknown type :", receivedPkt)
 		}
     }
+}
+
+func handleNewBlockArrival(blockPublish BlockPublish, peerAddr string) {
+
+	block := blockPublish.Block
+	hopLimit := blockPublish.HopLimit
+
+	// check if PoW is valid
+	isValid, blockHash_hex := checkBlockPoW(block)
+
+	allFilenamesFree := checkAllFilenamesAreFree(block)
+
+	if(isValid && allFilenamesFree) {
+
+		// check if we already have seen the block
+		gossiper.SafeBlockchain.mux.Lock()
+		_, contains := gossiper.SafeBlockchain.Blockchain[blockHash_hex]
+
+		// if we do not already have this block in our blockchain
+		if(!contains) {
+
+			// check if we have seen the parent block
+			parentBlockHash := make([]byte, 32)
+			copy(parentBlockHash, block.PrevHash[:])
+			parentBlockHash_hex := bytesToHex(parentBlockHash)
+			_, containsParent := gossiper.SafeBlockchain.Blockchain[parentBlockHash_hex]
+
+			if(containsParent) {
+
+				// add block to the blockchain
+				gossiper.SafeBlockchain.Blockchain[blockHash_hex] = block
+
+				// check if parentBlock is a head :
+				gossiper.SafeHeadsToLength.mux.Lock()
+				parentLength, parentIsHead := gossiper.SafeHeadsToLength.HeadToLength[parentBlockHash_hex]
+				gossiper.SafeHeadsToLength.mux.Unlock()
+
+				if(parentIsHead) {
+					// Replace head by new block hash and increment length of the chain
+
+					gossiper.SafeHeadsToLength.mux.Lock()
+					delete(gossiper.SafeHeadsToLength.HeadToLength, parentBlockHash_hex)
+					gossiper.SafeHeadsToLength.HeadToLength[blockHash_hex] = parentLength+1
+
+					// check if the previous block was the head of the longest chain
+					if(gossiper.LongestChainHead == parentBlockHash_hex) {
+						gossiper.SafeHeadsToLength.mux.Unlock()
+						// replace the longest chain's head with the new block and add all transactions to filename->metahash map
+						gossiper.LongestChainHead = blockHash_hex
+
+						addTransactionsToFilenameMetahashMap(block.Transactions)
+
+						printLongestChain()
+					} else {
+
+						// the parent block is the head of a fork, and our block is the new head of that fork
+
+						mainChainLength := gossiper.SafeHeadsToLength.HeadToLength[gossiper.LongestChainHead]
+						gossiper.SafeHeadsToLength.mux.Unlock()
+
+						// check if the length of the fork chain is now greater than the longest chain
+						if(mainChainLength < parentLength+1) {
+
+							// We must switch our main chain to the fork
+
+							// delete all transactions on last longest chain until we reach the intersection of main and fork block
+							gossiper.SafeFilenamesToMetahash.mux.Lock()
+
+							forkMainIntersection_hex := getIntersectionBetweenMainAndFork(blockHash_hex)
+							nbRewinds := deleteTransactionsOfLongestChainFromBlockToBlock(gossiper.LongestChainHead, forkMainIntersection_hex, 0)
+
+							// add all transactions of new longest chain
+							addTransactionsOfForkFromBlockToBlock(blockHash_hex, forkMainIntersection_hex)
+							gossiper.SafeFilenamesToMetahash.mux.Unlock()
+
+							// replace the longest chain's head with the new block
+							gossiper.LongestChainHead = blockHash_hex
+
+							// Print stuff
+							printLongestChain()
+							fmt.Println("FORK-LONGER rewind %d blocks", nbRewinds)
+						}
+					}
+
+				} else {
+					// make fork with this block as head
+
+					// Replace head by new block and increment length of the chain
+
+					gossiper.SafeHeadsToLength.mux.Lock()
+					gossiper.SafeHeadsToLength.HeadToLength[blockHash_hex] = getChainLengthFromBlock(parentBlockHash_hex) + 1
+					gossiper.SafeHeadsToLength.mux.Unlock()
+
+					fmt.Println("FORK-SHORTER", blockHash_hex)
+
+				}
+			} else {
+				// We do not have the parent block in our blockchain
+
+				// Check if the blockchain is empty, it yes set this block to be the first block :
+				if(len(gossiper.SafeBlockchain.Blockchain) == 0) {
+
+					// Sanity check 
+					if(gossiper.LongestChainHead != "") {
+						fmt.Println("Error : got head :", gossiper.LongestChainHead, "but no blockchain :", gossiper.SafeBlockchain.Blockchain)
+					}
+
+					// This is the first block, so set the head of the longest blockchain, the heads of blockchains and the blockchain
+					gossiper.LongestChainHead = blockHash_hex
+
+					gossiper.SafeBlockchain.Blockchain[blockHash_hex] = block
+
+					gossiper.SafeHeadsToLength.mux.Lock()
+					gossiper.SafeHeadsToLength.HeadToLength[blockHash_hex] = 1
+					gossiper.SafeHeadsToLength.mux.Unlock()
+
+					// Add transactions to the filename to metahash map
+					addTransactionsToFilenameMetahashMap(block.Transactions)
+					printLongestChain()
+				}
+			}
+
+			gossiper.SafeBlockchain.mux.Unlock()
+
+			// forward block
+			if(hopLimit > 0) {
+				blockPublish.HopLimit = hopLimit - 1
+				broadcastBlockPublishToAllPeersExcept(blockPublish, peerAddr)
+			}
+		} else {
+			gossiper.SafeBlockchain.mux.Unlock()
+		}
+	} else {
+		fmt.Println("Block is not valid :", blockHash_hex, "or some filenames are taken ?", allFilenamesFree)
+	}
 }
 
 func main() {
@@ -1009,7 +1210,8 @@ func main() {
 		}
 
 		go listenUIPort()
-		listenGossipPort()
+		go listenGossipPort()
+		go miningProcedure()
 		//go antiEntropy()
 
 		r := mux.NewRouter()
@@ -1040,18 +1242,10 @@ func main() {
 	}
 
 	/* LIST OF THINGS TO DO IN ORDER OF PRIORITY :
-	1. for routing messages : map of [ip] -> (origin, lastID)
-	2. Change the UIPort to receive a request (just as done with frontendHandler)
-	3. Change CLI so that with flags -file=... -request=... the downloads can start (no need for dest)
-	
-	5. FileChunkInfoAndNbMatches : Should maybe change this into pointers, so that one file info is saved only once
 
-	6. Must add prints
-	7. Must change the client/main and listenUIPort
-
+	2. Must uncomment broadcastTxPublish lines
 
 	ISSUES :
-		- SAME REQUEST WAS ALREADY MADE, SHOULD WE REALLY DO THIS ? DO THE 0.5 SEC THING ?
 
 	commented rand.Int() in main.go, messageHandler of frontendHandler.go and in makeTimer of basicMethods, to uncomment.
 	*/

@@ -142,7 +142,7 @@ func PrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
 			ID : 0,
 			Text : r.FormValue("PrivateMessage"),
 			Destination : dest,
-			HopLimit : 10,
+			HopLimit : NORMAL_HOP_LIMIT,
         }
 
 		address := getAddressFromRoutingTable(dest)
@@ -251,7 +251,7 @@ func CloseNodeHandler(w http.ResponseWriter, r *http.Request) {
 			ID : 0,
 			Text : msg,
 			Destination : dest,
-			HopLimit : 10,
+			HopLimit : NORMAL_HOP_LIMIT,
 		}
 
         address := getAddressFromRoutingTable(dest)
@@ -267,15 +267,52 @@ func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
         file, isOk := computeFileIndices(filename, true)
 
         if(isOk) {
-	        fmt.Println("Metahash of file indexed is :", file.Metahash)
-			fmt.Println("Metafile of file indexed is :", file.Metafile)
+	        //fmt.Println("Metahash of file indexed is :", file.Metahash)
+			//fmt.Println("Metafile of file indexed is :", file.Metafile)
 
 	        if(file.Size <= MAX_FILE_SIZE) {
-				// add to map of indexed files
+
+	        	// MIGHT CHANGE WITH HW3
+
+				// add to map of indexed files 
 				metahash_hex := file.Metahash
 				gossiper.SafeIndexedFiles.mux.Lock()
 				gossiper.SafeIndexedFiles.IndexedFiles[metahash_hex] = file
 				gossiper.SafeIndexedFiles.mux.Unlock()
+
+				/* HW 3 BLOCKCHAIN UPDATE :
+					
+				When indexing a new file, we must send a TxPublish to all our neighbours :	
+				
+				Question : 
+					- must we wait for a block to be done before indexing the file?
+					- What if the name does not yet exist but does in another part of the blockchain ?
+				*/ 
+
+				gossiper.SafeFilenamesToMetahash.mux.Lock()
+				_,alreadyInBlockchain := gossiper.SafeFilenamesToMetahash.FilenamesToMetahash[file.Name]
+				gossiper.SafeFilenamesToMetahash.mux.Unlock()
+
+				if(!alreadyInBlockchain) {
+					f := File {
+						Name: file.Name,
+						Size: int64(file.Size),
+						MetafileHash: hexToBytes(metahash_hex),
+					}
+
+					txPublish := TxPublish{
+						File: f,
+						HopLimit: NORMAL_HOP_LIMIT,
+					}
+
+					gossiper.PendingTx = append(gossiper.PendingTx, txPublish)
+
+					broadcastTxPublishToAllPeersExcept(txPublish, "")
+					
+				} else {
+					fmt.Println("Error : Filename already exists in blockchain :", file.Name)
+				}
+
 			} else {
 				fmt.Println("Error : file too big :", file.Size)
 			}
@@ -305,7 +342,7 @@ func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
 			dataRequest := DataRequest {
 				Origin : gossiper.Name,
 				Destination : dest,
-				HopLimit : 10,
+				HopLimit : NORMAL_HOP_LIMIT,
 				HashValue : hexToBytes(metahash),
 			}
 
@@ -391,11 +428,8 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 
 			// Now request the download the whole file with help of the map[origin]->chunk
 			searchReplyOrigin := getNextChunkDestination(metahash_hex, 0, "")
-
-			//fmt.Println("The search reply origin is :", searchReplyOrigin)
 			
 			requestMetafileOfHashAndDest(metahash_hex, searchReplyOrigin)
-			//downloadFileWithMetahash(filename, metahash_hex)
 		} else {
 			fmt.Println("File already downloaded")
 
@@ -450,32 +484,31 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			
 			gossiper.SafeKeywordToInfo.mux.Unlock()
-
-			// Send search request to up to "budget" neighbours :
-			nb_peers := uint64(len(gossiper.Peers))
-
-			if(nb_peers == 0) {
-				return 
-			}
-
-			// send to all peers by setting a budget as evenly distributed as possible
-			budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
-
-			total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
-			
-			// Sanity check
-			if(total != budget) {
-				fmt.Println("ERROR : the total budget allocated and the total budget received is not the same :", total, " != ", budget)
-			}
-
-			if(budgetGiven) {
-				sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
-			} else {
-				sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
-			}
 		} else {
 			gossiper.SafeSearchRequests.mux.Unlock()
-			fmt.Println("The same request was already made :", gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString])
+		}
+
+		// Send search request to up to "budget" neighbours :
+		nb_peers := uint64(len(gossiper.Peers))
+
+		if(nb_peers == 0) {
+			return 
+		}
+
+		// send to all peers by setting a budget as evenly distributed as possible
+		budgetForAll, nbPeersWithBudgetIncreased := getDistributionOfBudget(budget, nb_peers)
+
+		total := uint64(budgetForAll*nb_peers + nbPeersWithBudgetIncreased)
+			
+		// Sanity check
+		if(total != budget) {
+			fmt.Println("ERROR : the total budget allocated and the total budget received is not the same :", total, " != ", budget)
+		}
+
+		if(budgetGiven) {
+			sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
+		} else {
+			sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
 		}
 	}
 }

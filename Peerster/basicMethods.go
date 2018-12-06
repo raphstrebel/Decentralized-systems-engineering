@@ -489,6 +489,8 @@ func NewGossiper(UIPort string, gossipPort string, name string, peers string) *G
 	isError(err)
 
 	var p []string
+	//nonce := make([]byte, 32)
+	//prevHash := make([]byte, 32)
 
 	if(len(peers) != 0) {
 		p = strings.Split(peers, ",")
@@ -546,7 +548,29 @@ func NewGossiper(UIPort string, gossipPort string, name string, peers string) *G
 		SafeAwaitingRequestsMetahash : SafeAwaitingRequestMetahash {
 			AwaitingRequestsMetahash: make(map[string]string),
 		},
+		SafeFilenamesToMetahash : SafeFilenameToMetahash {
+			FilenamesToMetahash: make(map[string]string),
+		},
+		PendingTx : []TxPublish{},
+		IsMining : false,
+		SafeBlockchain : SafeBlockchainStruct{
+			Blockchain: make(map[string]Block),
+		},
+		SafeHeadsToLength : SafeHeadToLength{
+			HeadToLength : make(map[string]int),
+		},
+		LongestChainHead : "",
 	}
+}
+
+func getNormalChunkMap(chunkMap []uint64) []uint64 {
+	res := []uint64{}
+
+	for _,elem := range chunkMap {
+		res = append(res, elem-1)
+	}
+
+	return res
 }
 
 func printStatusReceived(peerStatus []PeerStatus, peerAddress string) {
@@ -569,8 +593,12 @@ func getAddressFromRoutingTable(dest string) string {
 	gossiper.SafeRoutingTables.mux.Lock()
 
 	if(len(gossiper.SafeRoutingTables.RoutingTable[dest]) == 0) {
-		fmt.Println("Error : No such destination :", dest)
 		gossiper.SafeRoutingTables.mux.Unlock()
+
+		if(gossiper.Name != dest) {
+			fmt.Println("Error : No such destination :", dest)
+		}
+
 		return ""
 	} else {
 		gossiper.SafeRoutingTables.mux.Unlock()
