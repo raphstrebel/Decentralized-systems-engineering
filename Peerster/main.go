@@ -1041,11 +1041,13 @@ func listenGossipPort() {
 				fmt.Println("Error : Filename already exists :", file.Name)
 			}
 		} else if(receivedPkt.BlockPublish != nil) {
+			
 			fmt.Println("Received blockPublish from :", peerAddr)
 
 			blockPublish := receivedPkt.BlockPublish
 
 			handleNewBlockArrival(*blockPublish, peerAddr)
+
 		} else {
 			fmt.Println("ERROR : Packet of unknown type :", receivedPkt)
 		}
@@ -1053,6 +1055,8 @@ func listenGossipPort() {
 }
 
 func handleNewBlockArrival(blockPublish BlockPublish, peerAddr string) {
+
+	fmt.Println("Handling block")
 
 	block := blockPublish.Block
 	hopLimit := blockPublish.HopLimit
@@ -1088,11 +1092,14 @@ func handleNewBlockArrival(blockPublish BlockPublish, peerAddr string) {
 				gossiper.SafeHeadsToLength.mux.Unlock()
 
 				if(parentIsHead) {
+
 					// Replace head by new block hash and increment length of the chain
+
+					newForkLength := parentLength+1
 
 					gossiper.SafeHeadsToLength.mux.Lock()
 					delete(gossiper.SafeHeadsToLength.HeadToLength, parentBlockHash_hex)
-					gossiper.SafeHeadsToLength.HeadToLength[blockHash_hex] = parentLength+1
+					gossiper.SafeHeadsToLength.HeadToLength[blockHash_hex] = newForkLength
 
 					// check if the previous block was the head of the longest chain
 					if(gossiper.LongestChainHead == parentBlockHash_hex) {
@@ -1100,18 +1107,20 @@ func handleNewBlockArrival(blockPublish BlockPublish, peerAddr string) {
 						// replace the longest chain's head with the new block and add all transactions to filename->metahash map
 						gossiper.LongestChainHead = blockHash_hex
 
+						gossiper.SafeFilenamesToMetahash.mux.Lock()
 						addTransactionsToFilenameMetahashMap(block.Transactions)
+						gossiper.SafeFilenamesToMetahash.mux.Unlock()
 
 						printLongestChain()
 					} else {
 
 						// the parent block is the head of a fork, and our block is the new head of that fork
-
 						mainChainLength := gossiper.SafeHeadsToLength.HeadToLength[gossiper.LongestChainHead]
+
 						gossiper.SafeHeadsToLength.mux.Unlock()
 
 						// check if the length of the fork chain is now greater than the longest chain
-						if(mainChainLength < parentLength+1) {
+						if(mainChainLength < newForkLength) {
 
 							// We must switch our main chain to the fork
 
@@ -1119,18 +1128,22 @@ func handleNewBlockArrival(blockPublish BlockPublish, peerAddr string) {
 							gossiper.SafeFilenamesToMetahash.mux.Lock()
 
 							forkMainIntersection_hex := getIntersectionBetweenMainAndFork(blockHash_hex)
+
 							nbRewinds := deleteTransactionsOfLongestChainFromBlockToBlock(gossiper.LongestChainHead, forkMainIntersection_hex, 0)
 
 							// add all transactions of new longest chain
 							addTransactionsOfForkFromBlockToBlock(blockHash_hex, forkMainIntersection_hex)
+
 							gossiper.SafeFilenamesToMetahash.mux.Unlock()
 
 							// replace the longest chain's head with the new block
 							gossiper.LongestChainHead = blockHash_hex
 
-							// Print stuff
+							fmt.Println("FORK-LONGER rewind",nbRewinds ,"blocks")
 							printLongestChain()
-							fmt.Println("FORK-LONGER rewind %d blocks", nbRewinds)
+						} else {
+							//todelete
+							fmt.Println("Shorter fork incremented")
 						}
 					}
 
@@ -1167,7 +1180,12 @@ func handleNewBlockArrival(blockPublish BlockPublish, peerAddr string) {
 					gossiper.SafeHeadsToLength.mux.Unlock()
 
 					// Add transactions to the filename to metahash map
+					gossiper.SafeFilenamesToMetahash.mux.Lock()
+
 					addTransactionsToFilenameMetahashMap(block.Transactions)
+
+					gossiper.SafeFilenamesToMetahash.mux.Unlock()
+
 					printLongestChain()
 				}
 			}
@@ -1180,8 +1198,14 @@ func handleNewBlockArrival(blockPublish BlockPublish, peerAddr string) {
 				broadcastBlockPublishToAllPeersExcept(blockPublish, peerAddr)
 			}
 		} else {
+			// We have already seen the block
 			gossiper.SafeBlockchain.mux.Unlock()
 		}
+
+		// todelete
+		fmt.Println()
+		fmt.Println("Printing entire chain :")
+		printEntireChain()
 	} else {
 		fmt.Println("Block is not valid :", blockHash_hex, "or some filenames are taken ?", allFilenamesFree)
 	}
@@ -1243,10 +1267,15 @@ func main() {
 
 	/* LIST OF THINGS TO DO IN ORDER OF PRIORITY :
 
-	2. Must uncomment broadcastTxPublish lines
+	1. When should we forward blocks and txPublish? (if we have already seen it should we still forward it?)
+	2. In what order should we print "rewind" and "longest chain"?
+
+	
+	ATTENTION : MUST UNCOMMENT broadcastTxPublishToAllPeersExcept IN FRONTEND AND CLIENT
 
 	ISSUES :
-
+	
+	change "protobuf" to "github/protobuf"
 	commented rand.Int() in main.go, messageHandler of frontendHandler.go and in makeTimer of basicMethods, to uncomment.
 	*/
 

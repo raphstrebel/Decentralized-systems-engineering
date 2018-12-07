@@ -307,8 +307,29 @@ func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
 
 					gossiper.PendingTx = append(gossiper.PendingTx, txPublish)
 
-					broadcastTxPublishToAllPeersExcept(txPublish, "")
-					
+
+
+
+
+
+
+
+
+
+					// JUST TO TEST : 
+					//broadcastTxPublishToAllPeersExcept(txPublish, "")
+
+
+
+
+
+
+
+
+
+
+
+
 				} else {
 					fmt.Println("Error : Filename already exists in blockchain :", file.Name)
 				}

@@ -82,15 +82,16 @@ func miningProcedure() {
 }
 
 // add the transactions of the block to our SafeFilenamesToMetahash map
+// ATTENTION : METHOD IS UNLOCKED
 func addTransactionsToFilenameMetahashMap(newTransactions []TxPublish) {
 
-	gossiper.SafeFilenamesToMetahash.mux.Lock()
+	//gossiper.SafeFilenamesToMetahash.mux.Lock()
 
 	for _,tx := range newTransactions {
 		gossiper.SafeFilenamesToMetahash.FilenamesToMetahash[tx.File.Name] = bytesToHex(tx.File.MetafileHash)
 	}
 
-	gossiper.SafeFilenamesToMetahash.mux.Unlock()
+	//gossiper.SafeFilenamesToMetahash.mux.Unlock()
 }
 
 /*func byteToByte32(b []byte) [32]byte {
@@ -167,7 +168,10 @@ func mineBlock(block Block, emptyBlock bool) (Block, time.Duration) {
 
 func getBlockHashHex(block Block) string {
 	blockHash := (block).Hash()
-	return bytesToHex(blockHash[:])
+	blockHashCopy := make([]byte, 32)
+	copy(blockHashCopy, blockHash[:])
+
+	return bytesToHex(blockHashCopy[:])
 }
 
 func checkBlockPoW(block Block) (bool, string) {
@@ -186,18 +190,10 @@ func checkAllFilenamesAreFree(block Block) bool {
 	gossiper.SafeFilenamesToMetahash.mux.Lock()
 
 	for _,tx := range block.Transactions {
-		metahash_stored_hex, exists := gossiper.SafeFilenamesToMetahash.FilenamesToMetahash[tx.File.Name]
+		_, exists := gossiper.SafeFilenamesToMetahash.FilenamesToMetahash[tx.File.Name]
 
 		if(exists) {
-			
-			metahash := make([]byte, 32)
-			copy(metahash, tx.File.MetafileHash)
-			metahash_hex := bytesToHex(metahash)
-			
-			if(metahash_stored_hex != metahash_hex) {
-				gossiper.SafeFilenamesToMetahash.mux.Unlock()
-				return false
-			}
+			return false
 		}
 	}
 
@@ -217,7 +213,9 @@ func addTransactionsOfForkFromBlockToBlock(newHeadHash_hex string, forkBlockHash
 		addTransactionsToFilenameMetahashMap(newHeadBlock.Transactions)
 
 		// Recursively call the method with the parent of newHeadBlock
-		newHeadHash_hex = bytesToHex(newHeadBlock.PrevHash[:])
+		currentMainHash := make([]byte, 32)
+		copy(currentMainHash, newHeadBlock.PrevHash[:])
+		newHeadHash_hex = bytesToHex(currentMainHash)
 		addTransactionsOfForkFromBlockToBlock(newHeadHash_hex, forkBlockHash_hex)
 	}
 }
