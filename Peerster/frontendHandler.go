@@ -309,8 +309,9 @@ func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
 
 
 
-
-
+					// todelete
+					fmt.Println("Metahash of file indexed is :", metahash_hex)
+					fmt.Println("Metafile of file indexed is :", file.Metafile)
 
 
 

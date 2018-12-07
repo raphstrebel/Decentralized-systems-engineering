@@ -6,7 +6,8 @@ However, in the case where the name is already given to another file, I name it 
 is already used in my "SharedFiles" folder, then it might be named "Kcarlton.txt", or "2Kcarlton.txt" if "Kcarlton.txt" is also already used (and so on).
 
 
-
+Note on blockchain of ex 2:
+As the block of hash "0000..." doesn't exist in the blockchain, I accept a block with prevHash = "0000..." only if it is the first block I see, otherwise I ignore it.
 
 
 

@@ -21,20 +21,21 @@ func sendPeriodicalSearchRequest(keywordsAsString string, nb_peers uint64) {
 		for range ticker.C {
 
 			gossiper.SafeSearchRequests.mux.Lock()
-			searchRequestInfo, searchStillExists := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString]
+			//searchRequestInfo, searchStillExists := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString]
+			searchRequestInfo := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString]
 			gossiper.SafeSearchRequests.mux.Unlock()
 
 			keywords := searchRequestInfo.Keywords
 			nbMatches := searchRequestInfo.NbOfMatches
 
-			if(!searchStillExists) {
+			/*if(!searchStillExists) {
 				fmt.Println("SEARCH FINISHED") 
 				return 
-			}
+			}*/
 
 			if(budget > MAX_BUDGET) {
 				return
-			} else if(nbMatches >= MIN_NUMBER_MATCHES) {
+			} else if(nbMatches > MIN_NUMBER_MATCHES) {
 				fmt.Println("SEARCH FINISHED")
 				return 
 			} else {
@@ -69,7 +70,8 @@ func propagateSearchRequest(keywords []string, budgetForAll uint64, nbPeersWithB
 		Keywords: keywords,
 	}
 
-	allCurrentPeers := make([]string, len(gossiper.Peers))
+	nbPeers := len(gossiper.Peers)
+	allCurrentPeers := make([]string, nbPeers)
 	copy(allCurrentPeers, gossiper.Peers)
 	
 	if(searchOriginAddress != "") {
@@ -127,11 +129,14 @@ func sendSearchRequestToNeighbours(keywords []string, budgetForAll uint64, nbPee
 		Keywords: keywords,
 	}
 
-	allCurrentPeers := make([]string, len(gossiper.Peers))
+	nbPeers := len(gossiper.Peers)
+
+	allCurrentPeers := make([]string, nbPeers)
 	copy(allCurrentPeers, gossiper.Peers)
 
-	remainingPeersToSendSearch := make([]string, len(allCurrentPeers))
+	remainingPeersToSendSearch := make([]string, nbPeers)
 	copy(remainingPeersToSendSearch, allCurrentPeers)
+
 	var luckyPeersToSendSearch []string
 
 	for i := 0; i < int(nbPeersWithBudgetIncreased); i++ {
@@ -142,6 +147,7 @@ func sendSearchRequestToNeighbours(keywords []string, budgetForAll uint64, nbPee
 	}
 
 	if(budgetForAll > 0) {
+		fmt.Println("All my peers :", allCurrentPeers, "gossiper peers :", gossiper.Peers)
 		// set budget for all peers to basic if not lucky (not in luckyPeersToSendSearch)
 		for _,p := range allCurrentPeers {
 			if(contains(luckyPeersToSendSearch, p)) {

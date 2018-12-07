@@ -102,9 +102,7 @@ func listenUIPort() {
 
 					gossiper.PendingTx = append(gossiper.PendingTx, txPublish)
 
-
-					// JUST TO TEST
-					//broadcastTxPublishToAllPeersExcept(txPublish, "")
+					broadcastTxPublishToAllPeersExcept(txPublish, "")
 
 				} else {
 					fmt.Println("Error : Filename already exists :", file.Name)
@@ -663,7 +661,7 @@ func listenGossipPort() {
 				    			gossiper.SafeIndexedFiles.mux.Unlock()
 
 
-					    		fmt.Println("DOWNLOADING", f.Name, "chunk", chunkIndex, "from", fileOrigin) // test
+					    		fmt.Println("DOWNLOADING", f.Name, "chunk", chunkIndex, "from", fileOrigin)
 
 					    		// Request first chunk
 					    		firstChunk := metafile_hex[0:CHUNK_HASH_SIZE_IN_HEXA]
@@ -1035,8 +1033,6 @@ func listenGossipPort() {
 				
 				gossiper.PendingTx = append(gossiper.PendingTx, *txPublish)
 
-				//go miningProcedure()
-
 			} else {
 				fmt.Println("Error : Filename already exists :", file.Name)
 			}
@@ -1056,10 +1052,10 @@ func listenGossipPort() {
 
 func handleNewBlockArrival(blockPublish BlockPublish, peerAddr string) {
 
-	fmt.Println("Handling block")
-
 	block := blockPublish.Block
 	hopLimit := blockPublish.HopLimit
+
+	//fmt.Println("Handling block", block)
 
 	// check if PoW is valid
 	isValid, blockHash_hex := checkBlockPoW(block)
@@ -1207,7 +1203,11 @@ func handleNewBlockArrival(blockPublish BlockPublish, peerAddr string) {
 		fmt.Println("Printing entire chain :")
 		printEntireChain()
 	} else {
-		fmt.Println("Block is not valid :", blockHash_hex, "or some filenames are taken ?", allFilenamesFree)
+		fmt.Println("Block is not valid :", blockHash_hex, "or some filenames are taken ?", !allFilenamesFree)
+
+		if(blockHash_hex[0:4] != "0000") {
+			fmt.Println("Error : the received block has hash :", blockHash_hex, "the block :", block)
+		}
 	}
 }
 
@@ -1235,7 +1235,7 @@ func main() {
 
 		go listenUIPort()
 		go listenGossipPort()
-		go miningProcedure()
+		miningProcedure()
 		//go antiEntropy()
 
 		r := mux.NewRouter()
@@ -1269,9 +1269,11 @@ func main() {
 
 	1. When should we forward blocks and txPublish? (if we have already seen it should we still forward it?)
 	2. In what order should we print "rewind" and "longest chain"?
+	3. Might have a problem with block hashes
+	4. Check sizes of files, abnormal behaviour
 
 	
-	ATTENTION : MUST UNCOMMENT broadcastTxPublishToAllPeersExcept IN FRONTEND AND CLIENT
+	ATTENTION : MUST UNCOMMENT //go miningProcedure()
 
 	ISSUES :
 	

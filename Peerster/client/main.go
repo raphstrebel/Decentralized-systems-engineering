@@ -136,9 +136,9 @@ func main() {
         }
     } else if(*keywords != "") {
 
-        if(*budget == 0) {
+        /*if(*budget == 0) {
             fmt.Println("budget set to default")
-        }
+        }*/
         
         // WHEN SHOULD WE CHECK IF THE BUDGET HAS BEEN GIVEN ?
         fileSearchMessage := &FileSearchMessage{
@@ -148,7 +148,7 @@ func main() {
 
         packet := ClientPacket{Search: fileSearchMessage}
         sendPacket(packet, gossiperAddr)
-    } else { // dest and file is nil, so send a normal message
+    } else if(*msg != "") { // dest and file is nil, so send a normal message
         
         message := &NormalMessage{
             Text: *msg,

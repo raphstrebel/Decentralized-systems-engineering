@@ -31,8 +31,7 @@ func miningProcedure() {
 
 	var miningEmptyBlock bool
 
-	// should delete for len() > 0, we must always mine if not already mining
-	//for len(gossiper.PendingTx) > 0 {
+	// we must always mine if not already mining
 	for {
 		if(!gossiper.IsMining) {
 
@@ -65,10 +64,9 @@ func miningProcedure() {
 					HopLimit: BLOCK_HOP_LIMIT,
 				}
 
-				//isValid, blockHash := checkBlockPoW(newBlock)
-
 				time.Sleep(2 * elapsedTime)
 
+				fmt.Println("Sending found block")
 
 				handleNewBlockArrival(newBlockPublish, "")
 			}
@@ -94,12 +92,19 @@ func addTransactionsToFilenameMetahashMap(newTransactions []TxPublish) {
 	//gossiper.SafeFilenamesToMetahash.mux.Unlock()
 }
 
-/*func byteToByte32(b []byte) [32]byte {
+func byteToByte32(b []byte) [32]byte {
+
+	if(len(b) != 32) {
+		fmt.Println("Error : length of byte array to convert to byte32 is not 32", b)
+		return [32]byte{}
+	}
+
+
 	return [32]byte{b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15], b[16], b[17], 
 		b[18], b[19], b[20], b[21], b[22], b[23], b[24], b[25], b[26], b[27], b[28], b[29], b[30], b[31]}
-}*/
+}
 
-func byteToByte32(b []byte) [32]byte {
+/*func byteToByte32WithPadding(b []byte) [32]byte {
 	var toReturn [32]byte
 
 	length := len(b)
@@ -115,7 +120,7 @@ func byteToByte32(b []byte) [32]byte {
 	}
 
 	return toReturn
-}
+}*/
 
 func mineBlock(block Block, emptyBlock bool) (Block, time.Duration) {
 
@@ -181,8 +186,7 @@ func checkBlockPoW(block Block) (bool, string) {
 	if(blockHash_hex[0:4] == "0000") {
 		return true, blockHash_hex
 	} else {
-		fmt.Println("Not valid blockhash :", blockHash_hex)
-		return false, ""
+		return false, blockHash_hex
 	}
 }
 
