@@ -21,6 +21,8 @@ const LEN_ALPHA_NUM_STRING = len(ALPHA_NUM_STRING)
 const MAX_BUDGET = 32
 const MIN_NUMBER_MATCHES = 2
 
+const GENESIS_BLOCK = "0000000000000000000000000000000000000000000000000000000000000000"
+
 var gossiper *Gossiper
 
 type ClientPacket struct {
@@ -173,7 +175,7 @@ type Gossiper struct {
 	// array of pending transactions
 	PendingTx []TxPublish
 	//SafePendingTx SafePendingTxStruct
-	IsMining bool
+	//IsMining bool
 	// the blockchain
 	SafeBlockchain SafeBlockchainStruct
 	// map of heads of subchains

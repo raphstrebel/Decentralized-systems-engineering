@@ -135,10 +135,6 @@ func main() {
             sendPacket(packet, gossiperAddr)
         }
     } else if(*keywords != "") {
-
-        /*if(*budget == 0) {
-            fmt.Println("budget set to default")
-        }*/
         
         // WHEN SHOULD WE CHECK IF THE BUDGET HAS BEEN GIVEN ?
         fileSearchMessage := &FileSearchMessage{

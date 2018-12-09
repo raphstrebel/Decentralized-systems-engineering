@@ -21,7 +21,7 @@ func sendPacketToSpecificPeer(packet GossipPacket, address string) {
 }
 
 func sendRumorMsgToSpecificPeer(rumorMessage RumorMessage, address string) {
-	//fmt.Println("MONGERING with", address)
+	fmt.Println("MONGERING with", address)
 
 	// Encode message
 	packet := GossipPacket{Rumor: &rumorMessage}
@@ -144,9 +144,9 @@ func rumormongering(rumorMessage RumorMessage, isRandom bool) {
 
     luckyPeer := gossiper.Peers[rand.Intn(len(gossiper.Peers))]
 
-    if(rumorMessage.Text != "") {
+    /*if(rumorMessage.Text != "") {
     	fmt.Println("sending", rumorMessage, "to", luckyPeer)
-    }
+    }*/
 
     if(isRandom) {
     	fmt.Println("FLIPPED COIN sending rumor to", luckyPeer)

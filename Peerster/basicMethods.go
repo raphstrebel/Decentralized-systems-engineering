@@ -4,7 +4,7 @@ import(
 	"fmt"
 	"reflect"
 	"time"
-	//"math/rand"
+	"math/rand"
 	"net"
 	"strings"
 	"encoding/hex"
@@ -346,9 +346,9 @@ func makeTimer(peerAddress string, rumorMessage RumorMessage) {
 
 		removeFinishedTimer(peerAddress)
 
-		/*if(rand.Int() % 2 == 0) {
+		if(rand.Int() % 2 == 0) {
 	        go rumormongering(rumorMessage, true)
-	    }*/
+	    }
 	        		
 	}()
 }
@@ -552,7 +552,7 @@ func NewGossiper(UIPort string, gossipPort string, name string, peers string) *G
 			FilenamesToMetahash: make(map[string]string),
 		},
 		PendingTx : []TxPublish{},
-		IsMining : false,
+		//IsMining : false,
 		SafeBlockchain : SafeBlockchainStruct{
 			Blockchain: make(map[string]Block),
 		},
@@ -575,17 +575,17 @@ func getNormalChunkMap(chunkMap []uint64) []uint64 {
 
 func printStatusReceived(peerStatus []PeerStatus, peerAddress string) {
 
-	//fmt.Print("STATUS from ", peerAddress, " ") 
+	fmt.Print("STATUS from ", peerAddress, " ") 
 
 	if(len(peerStatus) == 0) {
 		return
 	}
 
 	// JUST FOR TEST PURPOSES TESTING
-	/*for _,ps := range peerStatus {
+	for _,ps := range peerStatus {
 		fmt.Print("peer ", ps.Identifier, " nextID ", ps.NextID, " ")
 	}
-	fmt.Println()*/
+	fmt.Println()
 }
 
 func getAddressFromRoutingTable(dest string) string {

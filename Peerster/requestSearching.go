@@ -7,6 +7,7 @@ import(
     "regexp"
     "time"
     "os"
+    "sort"
 )
 
 func sendPeriodicalSearchRequest(keywordsAsString string, nb_peers uint64) {
@@ -35,7 +36,7 @@ func sendPeriodicalSearchRequest(keywordsAsString string, nb_peers uint64) {
 
 			if(budget > MAX_BUDGET) {
 				return
-			} else if(nbMatches > MIN_NUMBER_MATCHES) {
+			} else if(nbMatches >= MIN_NUMBER_MATCHES) {
 				fmt.Println("SEARCH FINISHED")
 				return 
 			} else {
@@ -49,6 +50,36 @@ func sendPeriodicalSearchRequest(keywordsAsString string, nb_peers uint64) {
 				// set budget to twice the budget
 				budget = budget * 2
 			}
+		}
+	}
+}
+
+func checkFoundMatchesPeriodically(keywordsAsString string) {
+ 	var ticker *time.Ticker
+	ticker = time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	nbTicks := 0
+
+	for {
+		// while we do not reach a budget of MAX_BUDGET or a number of matches = len(keywords), send the request again every second
+		for range ticker.C {
+
+			gossiper.SafeSearchRequests.mux.Lock()
+			//searchRequestInfo, searchStillExists := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString]
+			searchRequestInfo := gossiper.SafeSearchRequests.SearchRequestInfo[keywordsAsString]
+			gossiper.SafeSearchRequests.mux.Unlock()
+
+			nbMatches := searchRequestInfo.NbOfMatches
+
+			if(nbMatches >= MIN_NUMBER_MATCHES) {
+				fmt.Println("SEARCH FINISHED")
+				return 
+			} else if(nbTicks == 5) {
+				return
+			}
+
+			nbTicks++
 		}
 	}
 }
@@ -147,16 +178,16 @@ func sendSearchRequestToNeighbours(keywords []string, budgetForAll uint64, nbPee
 	}
 
 	if(budgetForAll > 0) {
-		fmt.Println("All my peers :", allCurrentPeers, "gossiper peers :", gossiper.Peers)
+		//fmt.Println("All my peers :", allCurrentPeers, "gossiper peers :", gossiper.Peers)
 		// set budget for all peers to basic if not lucky (not in luckyPeersToSendSearch)
 		for _,p := range allCurrentPeers {
 			if(contains(luckyPeersToSendSearch, p)) {
 				// send search request with augmented budget :
-				fmt.Println("Sending search request :", searchRequestWithAugmentedBudget, " to :", p)
+				//fmt.Println("Sending search request :", searchRequestWithAugmentedBudget, " to :", p)
 				sendSearchRequestToSpecificPeer(searchRequestWithAugmentedBudget, p)
 			
 			} else {
-				fmt.Println("Sending search request :", searchRequest, " to :", p)
+				//fmt.Println("Sending search request :", searchRequest, " to :", p)
 				sendSearchRequestToSpecificPeer(searchRequest, p)
 			}
 		}
@@ -364,8 +395,11 @@ func sendMatchToFrontend(keyword string, limitMatches bool, searchReplyOrigin st
 			fileChunkInfoAndNbMatchesOfKeyword.FilesAndChunksInfo[index] = file
 			gossiper.SafeKeywordToInfo.KeywordToInfo[keyword] = fileChunkInfoAndNbMatchesOfKeyword
 
-			fmt.Println("FOUND match", file.Filename, "at", searchReplyOrigin)
-			fmt.Println("metahash", file.Metahash)
+			//FOUND match <filename> at <peer> metafile=<metahash> chunks=<chunk_list>
+			fmt.Print("FOUND match ", file.Filename, " at ", searchReplyOrigin, " metahash=", file.Metahash, "chunks=")
+			printChunks(file.ChunkOriginToIndices[searchReplyOrigin])
+
+			fmt.Println()
 
 			addMatchToArray(file.Metahash, file.Filename)
 
@@ -374,6 +408,51 @@ func sendMatchToFrontend(keyword string, limitMatches bool, searchReplyOrigin st
 		}
 	}
 	gossiper.SafeIndexedFiles.mux.Unlock()
+}
+
+func printChunks(listOfIndices []uint64) {
+	length := len(listOfIndices)
+
+	if(length == 0) {
+		return
+	}
+
+	orderedChunkList := getOrderedChunkList(listOfIndices)
+
+	// print list
+	for i,chunkIndex := range orderedChunkList {
+		if(i == length-1) {
+			fmt.Print(chunkIndex)
+		} else {
+			fmt.Print(chunkIndex, ",")
+		}
+	}
+}
+
+func getOrderedChunkList(listOfIndices []uint64) []uint64 {
+
+	orderedChunkList := make([]uint64, len(listOfIndices))
+
+	copy(orderedChunkList, listOfIndices)
+
+	// from https://stackoverflow.com/questions/38607733/sorting-a-uint64-slice-in-go
+	sort.Slice(orderedChunkList, func(i, j int) bool { return orderedChunkList[i] < orderedChunkList[j] })
+
+	return orderedChunkList
+
+}
+
+func checkIsOrdered(listOfIndices []uint64) bool {
+	var lastElem uint64
+	lastElem = 0
+
+	for _,currentElem := range listOfIndices {
+		if(lastElem > currentElem) {
+			return false
+		} 
+		lastElem = currentElem
+	}
+	return true
 }
 
 func addMatchToArray(metahash string, name string) {

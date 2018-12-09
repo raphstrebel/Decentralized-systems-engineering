@@ -92,7 +92,6 @@ func MessageHandler(w http.ResponseWriter, r *http.Request) {
 	    gossiper.SafeNextClientMessageIDs.mux.Unlock()
 
 		stateID := updateStatusAndRumorArray(rumorMessage, false)
-		//updateStatusAndRumorMapsWhenReceivingClientMessage(rumorMessage)
 		
 		if(len(gossiper.Peers) > 0) {
 			go rumormongering(rumorMessage, false)
@@ -310,26 +309,13 @@ func FileSharingHandler(w http.ResponseWriter, r *http.Request) {
 
 
 					// todelete
-					fmt.Println("Metahash of file indexed is :", metahash_hex)
-					fmt.Println("Metafile of file indexed is :", file.Metafile)
+					//fmt.Println("Metahash of file indexed is :", metahash_hex)
+					//fmt.Println("Metafile of file indexed is :", file.Metafile)
 
 
 
 
-
-					// JUST TO TEST : 
-					//broadcastTxPublishToAllPeersExcept(txPublish, "")
-
-
-
-
-
-
-
-
-
-
-
+					broadcastTxPublishToAllPeersExcept(txPublish, "")
 
 				} else {
 					fmt.Println("Error : Filename already exists in blockchain :", file.Name)
@@ -453,7 +439,7 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 			
 			requestMetafileOfHashAndDest(metahash_hex, searchReplyOrigin)
 		} else {
-			fmt.Println("File already downloaded")
+			fmt.Println("Error : File already downloaded")
 
 			gossiper.SafeIndexedFiles.mux.Unlock()
 		}
@@ -529,6 +515,7 @@ func FileSearchHandler(w http.ResponseWriter, r *http.Request) {
 
 		if(budgetGiven) {
 			sendSearchRequestToNeighbours(keywords, budgetForAll, nbPeersWithBudgetIncreased)
+			checkFoundMatchesPeriodically(keywordsAsString)
 		} else {
 			sendPeriodicalSearchRequest(keywordsAsString, nb_peers)
 		}

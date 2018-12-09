@@ -29,13 +29,14 @@ func broadcastBlockPublishToAllPeersExcept(blockPublish BlockPublish, exceptPeer
 // Note : not sure if we need the gossiper.IsMining. If we only call miningProcedure once then no (we only need isMining if we use multiple concurrent miners)
 func miningProcedure() {
 
-	var miningEmptyBlock bool
+	//var miningEmptyBlock bool
+	isFirstMinedBlock := true
 
 	// we must always mine if not already mining
 	for {
-		if(!gossiper.IsMining) {
+		//if(!gossiper.IsMining) {
 
-			gossiper.IsMining = true
+		//	gossiper.IsMining = true
 
 			lastBlock := gossiper.LongestChainHead
 
@@ -51,31 +52,41 @@ func miningProcedure() {
 			}
 
 			// Set miningEmptyBlock to true if we are mining nothing
-			miningEmptyBlock = len(gossiper.PendingTx) == 0
+			//miningEmptyBlock = len(gossiper.PendingTx) == 0
 
 			gossiper.PendingTx = []TxPublish{}
 
-			newBlock, elapsedTime := mineBlock(pendingBlock, miningEmptyBlock)
+			newBlock, elapsedTime := mineBlock(pendingBlock)//, miningEmptyBlock)
 
-			if(!miningEmptyBlock) {
-
+			//if(!miningEmptyBlock) {
 				newBlockPublish := BlockPublish {
 					Block : newBlock,
 					HopLimit: BLOCK_HOP_LIMIT,
 				}
 
-				time.Sleep(2 * elapsedTime)
+				if(isFirstMinedBlock) {
 
-				fmt.Println("Sending found block")
+					time.Sleep(5*time.Second)	
 
-				handleNewBlockArrival(newBlockPublish, "")
-			}
+					isFirstMinedBlock = false
+				} else {
+					time.Sleep(2 * elapsedTime)
+				}
 
-			gossiper.IsMining = false
 
-		} else {
-			return
-		}
+				isValid,_ := checkBlockPoW(newBlock)
+
+
+				if(isValid) {
+					handleNewBlockArrival(newBlockPublish, "")
+				}
+			//}
+
+		//	gossiper.IsMining = false
+
+		//} else {
+		//	return
+		//}
 	}
 }
 
@@ -83,13 +94,9 @@ func miningProcedure() {
 // ATTENTION : METHOD IS UNLOCKED
 func addTransactionsToFilenameMetahashMap(newTransactions []TxPublish) {
 
-	//gossiper.SafeFilenamesToMetahash.mux.Lock()
-
 	for _,tx := range newTransactions {
 		gossiper.SafeFilenamesToMetahash.FilenamesToMetahash[tx.File.Name] = bytesToHex(tx.File.MetafileHash)
 	}
-
-	//gossiper.SafeFilenamesToMetahash.mux.Unlock()
 }
 
 func byteToByte32(b []byte) [32]byte {
@@ -122,11 +129,13 @@ func byteToByte32(b []byte) [32]byte {
 	return toReturn
 }*/
 
-func mineBlock(block Block, emptyBlock bool) (Block, time.Duration) {
-
-	var newBlockTry string
+//func mineBlock(block Block, emptyBlock bool) (Block, time.Duration) {
+func mineBlock(block Block) (Block, time.Duration) {
+	var newBlockTry_hex string
 	nonce := make([]byte, 32)
 	var i uint32
+
+	//newBlockTry := copyBlock(block)
 
 	// set a random initial point :
 	rand.Seed(time.Now().UTC().UnixNano())
@@ -145,22 +154,28 @@ func mineBlock(block Block, emptyBlock bool) (Block, time.Duration) {
 	start := time.Now()
 
 	for {
-		newBlockTry = getBlockHashHex(block)
+		newBlockTry_hex = getBlockHashHex(block)
 
-		//if(newBlockTry[0:4] == "0000") {
-		if(newBlockTry[0:4] == "0000") {
+		if(newBlockTry_hex[0:4] == "0000") {
 
-			if(!emptyBlock) {
-				fmt.Println("FOUND-BLOCK", newBlockTry)
-			}
+			//if(!emptyBlock) {
+				fmt.Println("FOUND-BLOCK", newBlockTry_hex)
+
+				//todelete
+				//fmt.Println("the block found :", block)
+			//}
 			
 			elapsed = time.Since(start)
 
-			return Block {
+			//return copyBlock(block), elapsed
+
+			return block, elapsed
+
+			/*return Block {
 				PrevHash: block.PrevHash,
 				Nonce: byteToByte32(nonce),
 				Transactions: block.Transactions,
-			}, elapsed
+			}, elapsed*/
 		}
 
 		i++
@@ -171,12 +186,66 @@ func mineBlock(block Block, emptyBlock bool) (Block, time.Duration) {
 	}
 }
 
-func getBlockHashHex(block Block) string {
-	blockHash := (block).Hash()
-	blockHashCopy := make([]byte, 32)
-	copy(blockHashCopy, blockHash[:])
+/*func copyFile(f File) File {
 
-	return bytesToHex(blockHashCopy[:])
+	metahashCopy := make([]byte, 32)
+	copy(metahashCopy, f.MetafileHash)
+
+	return File {
+		Name: f.Name,
+		Size: f.Size,
+		MetafileHash: metahashCopy,
+	}
+}
+
+func copyTransactionsArray(transactions []TxPublish) []TxPublish {
+	//txCopy := make([]TxPublish, len(transactions))
+	txArrayCopy := []TxPublish{}
+	var txCopy TxPublish
+
+	for _,tx := range transactions {
+		
+		txCopy = TxPublish{
+			File: copyFile(tx.File),
+			HopLimit: tx.HopLimit,
+		}
+
+		txArrayCopy = append(txArrayCopy, txCopy)
+	} 
+
+	return txArrayCopy
+}
+
+func copyBlock(block Block) Block {
+
+	prevHash := make([]byte, 32)
+	nonce := make([]byte, 32)
+
+	tx := copyTransactionsArray(block.Transactions)
+
+	copy(prevHash, block.PrevHash[:])
+	copy(nonce, block.Nonce[:])
+	copy(tx, block.Transactions)
+
+	prevHash32 := byteToByte32(prevHash)
+	nonce32 := byteToByte32(nonce)
+
+	return Block{
+		PrevHash: prevHash32,
+		Nonce: nonce32,
+		Transactions: tx,
+	}
+}*/
+
+func getBlockHashHex(block Block) string {
+
+	//blockCopy := copyBlock(block)
+
+	blockHash := (block).Hash()
+	//blockHashCopy := make([]byte, 32)
+	//copy(blockHashCopy, blockHash[:])
+
+	return bytesToHex(blockHash[:])//bytesToHex(blockHashCopy[:])
 }
 
 func checkBlockPoW(block Block) (bool, string) {
@@ -191,7 +260,6 @@ func checkBlockPoW(block Block) (bool, string) {
 }
 
 func checkAllFilenamesAreFree(block Block) bool {
-	gossiper.SafeFilenamesToMetahash.mux.Lock()
 
 	for _,tx := range block.Transactions {
 		_, exists := gossiper.SafeFilenamesToMetahash.FilenamesToMetahash[tx.File.Name]
@@ -201,7 +269,6 @@ func checkAllFilenamesAreFree(block Block) bool {
 		}
 	}
 
-	gossiper.SafeFilenamesToMetahash.mux.Unlock()
 	return true
 }
 
@@ -226,7 +293,7 @@ func addTransactionsOfForkFromBlockToBlock(newHeadHash_hex string, forkBlockHash
 
 func deleteTransactionsOfLongestChainFromBlockToBlock(longestChainHead_hex string, forkMainIntersection_hex string, nbRewinds int) int {
 	
-	if(longestChainHead_hex == "00000000000000000000000000000000") {
+	if(longestChainHead_hex == GENESIS_BLOCK) {
 		return nbRewinds
 	}
 
@@ -340,15 +407,14 @@ func printLongestChain() {
 	gotParent := true
 	currentHash := make([]byte, 32)
 
-	//print : [block-latest] [block-prev] … [block-earliest])
-
+	//print : CHAIN [block-latest] [block-prev] … [block-earliest]
 	fmt.Print("CHAIN")
 
 	for gotParent {
 		// print : [blockHash prevBlocHash transactions]
 		copy(currentHash, currentBlock.PrevHash[:])
 		prevBlocHash_hex = bytesToHex(currentHash)
-		fmt.Print(" ", currentBlockHash_hex, " ", prevBlocHash_hex, " ")
+		fmt.Print(" ", currentBlockHash_hex, ":", prevBlocHash_hex, ":")
 		printTransactions(currentBlock.Transactions)
 
 		currentBlock, gotParent = gossiper.SafeBlockchain.Blockchain[prevBlocHash_hex]
@@ -361,11 +427,12 @@ func printLongestChain() {
 func printTransactions(transactions []TxPublish) {
 	
 	transactionsLength := len(transactions)-1
+
 	for i, tx := range transactions {
 		if(i == transactionsLength) {
 			fmt.Print(tx.File.Name)
 		} else {
-			fmt.Print(tx.File.Name, ", ")
+			fmt.Print(tx.File.Name, ",")
 		}
 	}
 }
@@ -394,7 +461,7 @@ func (t *TxPublish) Hash() (out [32]byte) {
 	return
 }
 
-// FOR TESTING ONLY
+/* FOR TESTING ONLY
 func printEntireChain() {
 	i := 1
 	for head, length := range gossiper.SafeHeadsToLength.HeadToLength {
@@ -427,4 +494,4 @@ func printChain(headHash_hex string) {
 
 	fmt.Println()
 
-}
+}*/
